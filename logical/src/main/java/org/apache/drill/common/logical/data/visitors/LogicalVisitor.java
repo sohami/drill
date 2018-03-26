@@ -18,6 +18,8 @@
 package org.apache.drill.common.logical.data.visitors;
 
 
+import org.apache.drill.common.logical.data.LateralJoin;
+import org.apache.drill.common.logical.data.Unnest;
 import org.apache.drill.common.logical.data.Values;
 import org.apache.drill.common.logical.data.Filter;
 import org.apache.drill.common.logical.data.Flatten;
@@ -32,7 +34,6 @@ import org.apache.drill.common.logical.data.Sequence;
 import org.apache.drill.common.logical.data.Store;
 import org.apache.drill.common.logical.data.Transform;
 import org.apache.drill.common.logical.data.Union;
-import org.apache.drill.common.logical.data.Window;
 import org.apache.drill.common.logical.data.Window;
 import org.apache.drill.common.logical.data.Writer;
 
@@ -63,4 +64,7 @@ public interface LogicalVisitor<RETURN, EXTRA, EXCEP extends Throwable> {
     public RETURN visitUnion(Union union, EXTRA value) throws EXCEP;
     public RETURN visitWindow(Window window, EXTRA value) throws EXCEP;
     public RETURN visitWriter(Writer writer, EXTRA value) throws EXCEP;
+
+    public RETURN visitUnnest(Unnest unnest, EXTRA value) throws EXCEP;
+    public RETURN visitLateralJoin(LateralJoin lateralJoin, EXTRA value) throws EXCEP;
 }
