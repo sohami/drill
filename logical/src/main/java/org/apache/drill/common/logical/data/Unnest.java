@@ -20,11 +20,14 @@ package org.apache.drill.common.logical.data;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
+import com.google.common.collect.Iterators;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.common.logical.data.visitors.LogicalVisitor;
 
+import java.util.Iterator;
+
 @JsonTypeName("unnest")
-public class Unnest extends SingleInputOperator {
+public class Unnest extends SourceOperator {
 
   private final SchemaPath column;
 
@@ -41,5 +44,4 @@ public class Unnest extends SingleInputOperator {
   public <T, X, E extends Throwable> T accept(LogicalVisitor<T, X, E> logicalVisitor, X value) throws E {
     return logicalVisitor.visitUnnest(this, value);
   }
-
 }

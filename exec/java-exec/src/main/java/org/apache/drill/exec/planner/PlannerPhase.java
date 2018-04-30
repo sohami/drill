@@ -41,6 +41,7 @@ import org.apache.drill.exec.planner.logical.DrillProjectRule;
 import org.apache.drill.exec.planner.logical.DrillPushFilterPastProjectRule;
 import org.apache.drill.exec.planner.logical.DrillPushLimitToScanRule;
 import org.apache.drill.exec.planner.logical.DrillPushProjectIntoScanRule;
+import org.apache.drill.exec.planner.logical.DrillPushProjectPastCorrelateRule;
 import org.apache.drill.exec.planner.logical.DrillPushProjectPastFilterRule;
 import org.apache.drill.exec.planner.logical.DrillPushProjectPastJoinRule;
 import org.apache.drill.exec.planner.logical.DrillReduceAggregatesRule;
@@ -279,6 +280,7 @@ public enum PlannerPhase {
       DrillFilterAggregateTransposeRule.INSTANCE,
 
       RuleInstance.FILTER_MERGE_RULE,
+      RuleInstance.FILTER_CORRELATE_RULE,
       RuleInstance.AGGREGATE_REMOVE_RULE,
       RuleInstance.PROJECT_REMOVE_RULE,
       RuleInstance.SORT_REMOVE_RULE,
@@ -291,6 +293,7 @@ public enum PlannerPhase {
        */
       DrillPushProjectPastFilterRule.INSTANCE,
       DrillPushProjectPastJoinRule.INSTANCE,
+      DrillPushProjectPastCorrelateRule.INSTANCE,
 
       // Due to infinite loop in planning (DRILL-3257/CALCITE-1271), temporarily use this rule in Hep planner
       // RuleInstance.PROJECT_SET_OP_TRANSPOSE_RULE,
@@ -448,6 +451,7 @@ public enum PlannerPhase {
     ruleList.add(UnionAllPrule.INSTANCE);
     ruleList.add(ValuesPrule.INSTANCE);
     ruleList.add(DirectScanPrule.INSTANCE);
+
     ruleList.add(UnnestPrule.INSTANCE);
     ruleList.add(CorrelatePrule.INSTANCE);
 
