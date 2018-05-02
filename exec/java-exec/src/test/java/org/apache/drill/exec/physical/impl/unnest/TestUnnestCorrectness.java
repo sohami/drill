@@ -132,6 +132,7 @@ import static org.junit.Assert.assertTrue;
 
   }
 
+  @Ignore("Need to fix the destruct logic of MapVector in UnnestRecordBatch")
   @Test
   @Ignore("With DRILL-6321 commits, Unnest's output could be multiplec olumns")
   public void testUnnestMapColumn() {
