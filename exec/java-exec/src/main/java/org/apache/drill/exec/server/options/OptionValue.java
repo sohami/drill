@@ -50,6 +50,7 @@ public class OptionValue implements Comparable<OptionValue> {
   public static final String JSON_STRING_VAL = "string_val";
   public static final String JSON_BOOL_VAL = "bool_val";
   public static final String JSON_FLOAT_VAL = "float_val";
+  public static final String JSON_INTEGER_VAL = "int_val";
   public static final String JSON_SCOPE = "scope";
 
   /**
@@ -76,7 +77,7 @@ public class OptionValue implements Comparable<OptionValue> {
   }
 
   public enum Kind {
-    BOOLEAN, LONG, STRING, DOUBLE
+    BOOLEAN, LONG, STRING, DOUBLE, INTEGER
   }
 
   /**
@@ -94,21 +95,26 @@ public class OptionValue implements Comparable<OptionValue> {
   public final Boolean bool_val;
   public final Double float_val;
   public final OptionScope scope;
+  public final Integer int_val;
 
   public static OptionValue create(AccessibleScopes accessibleScopes, String name, long val, OptionScope scope) {
-    return new OptionValue(Kind.LONG, accessibleScopes, name, val, null, null, null, scope);
+    return new OptionValue(Kind.LONG, accessibleScopes, name, val, null, null, null, null, scope);
   }
 
   public static OptionValue create(AccessibleScopes accessibleScopes, String name, boolean bool, OptionScope scope) {
-    return new OptionValue(Kind.BOOLEAN, accessibleScopes, name, null, null, bool, null, scope);
+    return new OptionValue(Kind.BOOLEAN, accessibleScopes, name, null, null, bool, null, null, scope);
   }
 
   public static OptionValue create(AccessibleScopes accessibleScopes, String name, String val, OptionScope scope) {
-    return new OptionValue(Kind.STRING, accessibleScopes, name, null, val, null, null, scope);
+    return new OptionValue(Kind.STRING, accessibleScopes, name, null, val, null, null, null, scope);
   }
 
   public static OptionValue create(AccessibleScopes accessibleScopes, String name, double val, OptionScope scope) {
-    return new OptionValue(Kind.DOUBLE, accessibleScopes, name, null, null, null, val, scope);
+    return new OptionValue(Kind.DOUBLE, accessibleScopes, name, null, null, null, val, null, scope);
+  }
+
+  public static OptionValue create(AccessibleScopes accessibleScopes, String name, int val, OptionScope scope) {
+    return new OptionValue(Kind.INTEGER, accessibleScopes, name, null, null, null, null, val, scope);
   }
 
   public static OptionValue create(Kind kind, AccessibleScopes accessibleScopes,
@@ -122,6 +128,8 @@ public class OptionValue implements Comparable<OptionValue> {
         return create(accessibleScopes, name, Double.parseDouble(val), scope);
       case LONG:
         return create(accessibleScopes, name, Long.parseLong(val), scope);
+      case INTEGER:
+        return create(accessibleScopes, name, Integer.parseInt(val), scope);
       default:
         throw new IllegalArgumentException(String.format("Unsupported kind %s", kind));
     }
@@ -153,8 +161,9 @@ public class OptionValue implements Comparable<OptionValue> {
                       @JsonProperty(JSON_STRING_VAL) String string_val,
                       @JsonProperty(JSON_BOOL_VAL) Boolean bool_val,
                       @JsonProperty(JSON_FLOAT_VAL) Double float_val,
+                      @JsonProperty(JSON_INTEGER_VAL) Integer int_val,
                       @JsonProperty(JSON_SCOPE) OptionScope scope) {
-    Preconditions.checkArgument(num_val != null || string_val != null || bool_val != null || float_val != null);
+    Preconditions.checkArgument(num_val != null || string_val != null || bool_val != null || float_val != null || int_val != null);
     this.kind = kind;
     this.accessibleScopes = accessibleScopes;
     this.name = name;
@@ -163,6 +172,7 @@ public class OptionValue implements Comparable<OptionValue> {
     this.string_val = string_val;
     this.bool_val = bool_val;
     this.scope = scope;
+    this.int_val = int_val;
   }
 
   public String getName() {
@@ -180,13 +190,15 @@ public class OptionValue implements Comparable<OptionValue> {
         return string_val;
       case DOUBLE:
         return float_val;
+      case INTEGER:
+        return int_val;
       default:
         return null;
     }
   }
 
   public PersistedOptionValue toPersisted() {
-    return new PersistedOptionValue(kind, name, num_val, string_val, bool_val, float_val);
+    return new PersistedOptionValue(kind, name, num_val, string_val, bool_val, float_val, int_val);
   }
 
   @Override
@@ -199,6 +211,7 @@ public class OptionValue implements Comparable<OptionValue> {
     result = prime * result + ((name == null) ? 0 : name.hashCode());
     result = prime * result + ((num_val == null) ? 0 : num_val.hashCode());
     result = prime * result + ((string_val == null) ? 0 : string_val.hashCode());
+    result = prime * result + ((int_val == null) ? 0 : int_val.hashCode());
     result = prime * result + ((accessibleScopes == null) ? 0 : accessibleScopes.hashCode());
     return result;
   }
@@ -252,6 +265,14 @@ public class OptionValue implements Comparable<OptionValue> {
     } else if (!string_val.equals(other.string_val)) {
       return false;
     }
+    if (int_val == null) {
+      if (other.int_val != null) {
+        return false;
+      }
+    } else if (!int_val.equals(other.int_val)) {
+      return false;
+    }
+
     return true;
   }
 

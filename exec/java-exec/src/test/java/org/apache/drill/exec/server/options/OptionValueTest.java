@@ -52,7 +52,7 @@ public class OptionValueTest {
       "myOption", "3000", OptionValue.OptionScope.SYSTEM);
 
     final OptionValue expectedValue = OptionValue.create(
-      OptionValue.AccessibleScopes.ALL, "myOption", 3000, OptionValue.OptionScope.SYSTEM);
+      OptionValue.AccessibleScopes.ALL, "myOption", 3000l, OptionValue.OptionScope.SYSTEM);
 
     Assert.assertEquals(expectedValue, createdValue);
   }
@@ -65,6 +65,18 @@ public class OptionValueTest {
 
     final OptionValue expectedValue = OptionValue.create(
       OptionValue.AccessibleScopes.ALL, "myOption", "wabalubawubdub", OptionValue.OptionScope.SYSTEM);
+
+    Assert.assertEquals(expectedValue, createdValue);
+  }
+
+  @Test
+  public void createIntegerKindTest() {
+    final OptionValue createdValue = OptionValue.create(
+      OptionValue.Kind.INTEGER, OptionValue.AccessibleScopes.ALL,
+      "myOption", "3000", OptionValue.OptionScope.SYSTEM);
+
+    final OptionValue expectedValue = OptionValue.create(
+      OptionValue.AccessibleScopes.ALL, "myOption", 3000, OptionValue.OptionScope.SYSTEM);
 
     Assert.assertEquals(expectedValue, createdValue);
   }

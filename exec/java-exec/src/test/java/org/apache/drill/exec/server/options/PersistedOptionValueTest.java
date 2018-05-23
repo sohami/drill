@@ -71,13 +71,13 @@ public class PersistedOptionValueTest {
     final String name = "myOption";
     final String stringContent = "val1";
     PersistedOptionValue stringValue =
-      new PersistedOptionValue(OptionValue.Kind.STRING, name, null, stringContent, null, null);
+      new PersistedOptionValue(OptionValue.Kind.STRING, name, null, stringContent, null, null, null);
     PersistedOptionValue numValue =
-      new PersistedOptionValue(OptionValue.Kind.LONG, name, 100L, null, null, null);
+      new PersistedOptionValue(OptionValue.Kind.LONG, name, 100L, null, null, null, null);
     PersistedOptionValue boolValue =
-      new PersistedOptionValue(OptionValue.Kind.BOOLEAN, name, null, null, true, null);
+      new PersistedOptionValue(OptionValue.Kind.BOOLEAN, name, null, null, true, null, null);
     PersistedOptionValue floatValue =
-      new PersistedOptionValue(OptionValue.Kind.DOUBLE, name, null, null, null, 55.5);
+      new PersistedOptionValue(OptionValue.Kind.DOUBLE, name, null, null, null, 55.5, null);
 
     Assert.assertEquals(stringContent, stringValue.getValue());
     Assert.assertEquals("100", numValue.getValue());
@@ -100,13 +100,13 @@ public class PersistedOptionValueTest {
 
     final String stringContent = "val1";
     PersistedOptionValue stringValue =
-      new PersistedOptionValue(OptionValue.Kind.STRING, name, null, stringContent, null, null);
+      new PersistedOptionValue(OptionValue.Kind.STRING, name, null, stringContent, null, null, null);
     PersistedOptionValue numValue =
-      new PersistedOptionValue(OptionValue.Kind.LONG, name, 100L, null, null, null);
+      new PersistedOptionValue(OptionValue.Kind.LONG, name, 100L, null, null, null, null);
     PersistedOptionValue boolValue =
-      new PersistedOptionValue(OptionValue.Kind.BOOLEAN, name, null, null, true, null);
+      new PersistedOptionValue(OptionValue.Kind.BOOLEAN, name, null, null, true, null, null);
     PersistedOptionValue floatValue =
-      new PersistedOptionValue(OptionValue.Kind.DOUBLE, name, null, null, null, 55.5);
+      new PersistedOptionValue(OptionValue.Kind.DOUBLE, name, null, null, null, 55.5, null);
 
     byte[] stringValueBytes = realSerializer.serialize(stringValue);
     byte[] numValueBytes = realSerializer.serialize(numValue);

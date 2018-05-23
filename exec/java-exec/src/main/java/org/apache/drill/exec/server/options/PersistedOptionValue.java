@@ -86,6 +86,10 @@ public class PersistedOptionValue {
    * This constant cannot be changed for backward and forward compatibility reasons.
    */
   public static final String JSON_FLOAT_VAL = "float_val";
+  /**
+   * This constant cannot be changed for backward and forward compatibility reasons.
+   */
+  public static final String JSON_INTEGER_VAL = "int_val";
 
   private String value;
   private OptionValue.Kind kind;
@@ -94,6 +98,7 @@ public class PersistedOptionValue {
   private String string_val;
   private Boolean bool_val;
   private Double float_val;
+  private Integer int_val;
 
   public PersistedOptionValue(String value) {
     this.value = Preconditions.checkNotNull(value);
@@ -101,13 +106,14 @@ public class PersistedOptionValue {
 
   public PersistedOptionValue(OptionValue.Kind kind, String name,
                               Long num_val, String string_val,
-                              Boolean bool_val, Double float_val) {
+                              Boolean bool_val, Double float_val, Integer int_val) {
     this.kind = kind;
     this.name = name;
     this.num_val = num_val;
     this.string_val = string_val;
     this.bool_val = bool_val;
     this.float_val = float_val;
+    this.int_val = int_val;
 
     switch (kind) {
       case BOOLEAN:
@@ -125,6 +131,10 @@ public class PersistedOptionValue {
       case LONG:
         Preconditions.checkNotNull(num_val);
         value = num_val.toString();
+        break;
+      case INTEGER:
+        Preconditions.checkNotNull(num_val);
+        value = int_val.toString();
         break;
       default:
         throw new UnsupportedOperationException(String.format("Unsupported type %s", kind));
@@ -195,6 +205,11 @@ public class PersistedOptionValue {
     return float_val;
   }
 
+  @JsonProperty(JSON_INTEGER_VAL)
+  public Integer getInegerVal() {
+    return int_val;
+  }
+
   public OptionValue toOptionValue(final OptionDefinition optionDefinition, final OptionValue.OptionScope optionScope) {
     Preconditions.checkNotNull(value, "The value must be defined in order for this to be converted to an " +
     "option value");
@@ -241,6 +256,10 @@ public class PersistedOptionValue {
       return false;
     }
 
+    if (int_val != null ? !int_val.equals(that.int_val) : that.int_val != null) {
+      return false;
+    }
+
     return float_val != null ? float_val.equals(that.float_val) : that.float_val == null;
   }
 
@@ -253,6 +272,7 @@ public class PersistedOptionValue {
     result = 31 * result + (string_val != null ? string_val.hashCode() : 0);
     result = 31 * result + (bool_val != null ? bool_val.hashCode() : 0);
     result = 31 * result + (float_val != null ? float_val.hashCode() : 0);
+    result = 31 * result + (int_val != null ? int_val.hashCode() : 0);
     return result;
   }
 
@@ -260,7 +280,7 @@ public class PersistedOptionValue {
   public String toString() {
     return "PersistedOptionValue{" + "value='" + value + '\'' + ", kind=" + kind + ", name='" + name +
       '\'' + ", num_val=" + num_val + ", string_val='" + string_val + '\'' + ", bool_val=" + bool_val +
-      ", float_val=" + float_val + '}';
+      ", float_val=" + float_val +  ", int_val=" + int_val + '}';
   }
 
   /**
@@ -304,6 +324,10 @@ public class PersistedOptionValue {
 
       if (node.has(OptionValue.JSON_FLOAT_VAL)) {
         value = node.get(OptionValue.JSON_FLOAT_VAL).asText();
+      }
+
+      if (node.has(OptionValue.JSON_INTEGER_VAL)) {
+        value = node.get(OptionValue.JSON_INTEGER_VAL).asText();
       }
 
       if (value == null) {

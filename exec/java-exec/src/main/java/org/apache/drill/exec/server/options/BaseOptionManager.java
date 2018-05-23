@@ -83,6 +83,11 @@ public abstract class BaseOptionManager implements OptionManager {
     return getByType(name, Kind.STRING).string_val;
   }
 
+  @Override
+  public int getInteger(String name) {
+    return getByType(name, Kind.INTEGER).int_val;
+  }
+
   private OptionValue getByType(String name, Kind dataType) {
     OptionValue value = getOption(name);
     if (value == null) {
@@ -158,6 +163,9 @@ public abstract class BaseOptionManager implements OptionManager {
         break;
       case BOOLEAN:
         value = Boolean.valueOf(valueStr);
+        break;
+      case INTEGER:
+        value = Integer.valueOf(valueStr);
         break;
       default:
         throw new IllegalArgumentException(String.format("Unsupported kind %s", kind));

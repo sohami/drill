@@ -118,4 +118,13 @@ public interface OptionSet {
    */
 
   String getString(String name);
+
+  /**
+   * Return the value of a String option
+   * @param name option name
+   * @throws IllegalArgumentException if the option is undefined or
+   * is not of the correct data type
+   * @return the int value
+   */
+  int getInteger(String name);
 }

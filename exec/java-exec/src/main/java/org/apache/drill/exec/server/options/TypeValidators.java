@@ -156,6 +156,12 @@ public class TypeValidators {
     }
   }
 
+  public static class IntegerValidator extends TypeValidator {
+    public IntegerValidator(String name) {
+      super(name, Kind.INTEGER);
+    }
+  }
+
   public static class RangeLongValidator extends LongValidator {
     private final long min;
     private final long max;

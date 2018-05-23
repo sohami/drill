@@ -105,6 +105,7 @@ import org.apache.drill.exec.planner.physical.visitor.TopProjectVisitor;
 import org.apache.drill.exec.planner.sql.parser.UnsupportedOperatorsVisitor;
 import org.apache.drill.exec.server.options.OptionManager;
 import org.apache.drill.exec.util.Pointer;
+import org.apache.drill.exec.work.filter.RuntimeFilterManager;
 import org.apache.drill.exec.work.foreman.ForemanSetupException;
 import org.apache.drill.exec.work.foreman.SqlUnsupportedException;
 import org.apache.drill.exec.work.foreman.UnsupportedRelOperatorException;
@@ -623,7 +624,11 @@ public class DefaultSqlHandler extends AbstractSqlHandler {
     propsBuilder.options(new JSONOptions(context.getOptions().getOptionList()));
     propsBuilder.resultMode(ResultMode.EXEC);
     propsBuilder.generator(this.getClass().getSimpleName(), "");
-    return new PhysicalPlan(propsBuilder.build(), getPops(op));
+    PhysicalPlan plan =  new PhysicalPlan(propsBuilder.build(), getPops(op));
+    //complement runtime filter information
+    RuntimeFilterManager.complementRuntimeFilterInfo(plan, context);
+    return plan;
+
   }
 
   public static List<PhysicalOperator> getPops(PhysicalOperator root) {

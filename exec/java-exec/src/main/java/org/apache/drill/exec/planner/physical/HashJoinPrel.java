@@ -38,6 +38,8 @@ import org.apache.calcite.plan.RelTraitSet;
 import org.apache.calcite.rex.RexNode;
 
 import com.google.common.collect.Lists;
+import org.apache.drill.exec.work.filter.RuntimeFilterDef;
+import org.apache.drill.exec.work.filter.RuntimeFilterManager;
 
 public class HashJoinPrel  extends JoinPrel {
 
@@ -76,7 +78,7 @@ public class HashJoinPrel  extends JoinPrel {
   }
 
   @Override
-  public PhysicalOperator getPhysicalOperator(PhysicalPlanCreator creator) throws IOException {
+  public org.apache.drill.exec.physical.base.PhysicalOperator getPhysicalOperator(PhysicalPlanCreator creator) throws IOException {
     // Depending on whether the left/right is swapped for hash inner join, pass in different
     // combinations of parameters.
     if (! swapped) {
@@ -113,7 +115,8 @@ public class HashJoinPrel  extends JoinPrel {
 
     buildJoinConditions(conditions, leftFields, rightFields, leftKeys, rightKeys);
 
-    HashJoinPOP hjoin = new HashJoinPOP(leftPop, rightPop, conditions, jtype);
+    RuntimeFilterDef runtimeFilterDef = RuntimeFilterManager.generateRuntimeFilter(this);
+    HashJoinPOP hjoin = new HashJoinPOP(leftPop, rightPop, conditions, jtype, runtimeFilterDef);
     return creator.addMetadata(this, hjoin);
   }
 
