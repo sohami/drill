@@ -73,6 +73,8 @@ public class SortImpl {
     int getRecordCount();
     SelectionVector2 getSv2();
     SelectionVector4 getSv4();
+    boolean supportsEmit();
+    void updateSV4Index(SelectionVector4 inSV4, BufferAllocator allocator);
   }
 
   public static class EmptyResults implements SortResults {
@@ -105,6 +107,16 @@ public class SortImpl {
 
     @Override
     public VectorContainer getContainer() { return dest; }
+
+    @Override
+    public boolean supportsEmit() {
+      return false;
+    }
+
+    @Override
+    public void updateSV4Index(SelectionVector4 inSV4, BufferAllocator allocator) {
+      throw new UnsupportedOperationException("EmptySortResults doesn't support any SV mode");
+    }
   }
 
   /**
@@ -169,6 +181,22 @@ public class SortImpl {
 
     @Override
     public VectorContainer getContainer() { return outputContainer; }
+
+    @Override
+    public boolean supportsEmit() {
+      return false;
+    }
+
+    /**
+     * TODO: Should update below method if this SortResult is expected with EMIT outcome. Should allocate the buffer
+     * for SV4 and set indexes from sv2 considering only 1 batch and recordCount from sv2.
+     * @param inSV4
+     * @param allocator
+     */
+    @Override
+    public void updateSV4Index(SelectionVector4 inSV4, BufferAllocator allocator) {
+      throw new UnsupportedOperationException("EmptySortResults doesn't support any SV mode");
+    }
   }
 
   private final SortConfig config;

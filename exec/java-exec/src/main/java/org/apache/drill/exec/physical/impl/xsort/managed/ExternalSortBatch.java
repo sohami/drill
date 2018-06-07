@@ -17,6 +17,7 @@
  */
 package org.apache.drill.exec.physical.impl.xsort.managed;
 
+import com.google.common.base.Preconditions;
 import org.apache.drill.common.exceptions.UserException;
 import org.apache.drill.exec.ops.FragmentContext;
 import org.apache.drill.exec.ops.MetricDef;
@@ -27,8 +28,10 @@ import org.apache.drill.exec.physical.impl.xsort.managed.SortImpl.SortResults;
 import org.apache.drill.exec.record.AbstractRecordBatch;
 import org.apache.drill.exec.record.BatchSchema;
 import org.apache.drill.exec.record.BatchSchema.SelectionVectorMode;
+import org.apache.drill.exec.record.HyperVectorWrapper;
 import org.apache.drill.exec.record.RecordBatch;
 import org.apache.drill.exec.record.SchemaUtil;
+import org.apache.drill.exec.record.VectorContainer;
 import org.apache.drill.exec.record.VectorWrapper;
 import org.apache.drill.exec.record.WritableBatch;
 import org.apache.drill.exec.record.selection.SelectionVector2;
@@ -188,6 +191,14 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
 
   private SortImpl sortImpl;
 
+  private IterOutcome lastKnownOutcome;
+
+  private boolean firstBatchOfSchema;
+
+  private VectorContainer outputWrapperContainer;
+
+  private SelectionVector4 outputSV4;
+
   // WARNING: The enum here is used within this class. But, the members of
   // this enum MUST match those in the (unmanaged) ExternalSortBatch since
   // that is the enum used in the UI to display metrics for the query profile.
@@ -212,35 +223,37 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
   public ExternalSortBatch(ExternalSort popConfig, FragmentContext context, RecordBatch incoming) {
     super(popConfig, context, true);
     this.incoming = incoming;
+    outputWrapperContainer = new VectorContainer(context.getAllocator());
 
     SortConfig sortConfig = new SortConfig(context.getConfig(), context.getOptions());
     SpillSet spillSet = new SpillSet(context.getConfig(), context.getHandle(), popConfig);
     oContext.setInjector(injector);
     PriorityQueueCopierWrapper copierHolder = new PriorityQueueCopierWrapper(oContext);
     SpilledRuns spilledRuns = new SpilledRuns(oContext, spillSet, copierHolder);
-    sortImpl = new SortImpl(oContext, sortConfig, spilledRuns, container);
+    sortImpl = new SortImpl(oContext, sortConfig, spilledRuns, outputWrapperContainer);
 
     // The upstream operator checks on record count before we have
     // results. Create an empty result set temporarily to handle
     // these calls.
 
-    resultsIterator = new SortImpl.EmptyResults(container);
+    resultsIterator = new SortImpl.EmptyResults(outputWrapperContainer);
   }
 
   @Override
   public int getRecordCount() {
-    return resultsIterator.getRecordCount();
+    return outputSV4.getCount();
   }
 
   @Override
   public SelectionVector4 getSelectionVector4() {
-    return resultsIterator.getSv4();
+    return outputSV4;
   }
 
+  /*
   @Override
   public SelectionVector2 getSelectionVector2() {
     return resultsIterator.getSv2();
-  }
+  }*/
 
   /**
    * Called by {@link AbstractRecordBatch} as a fast-path to obtain
@@ -346,16 +359,18 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     // Clear the temporary container created by
     // buildSchema().
 
-    container.clear();
+    // Cannot clear container for each load with EMIT outcome support since we need to maintain the references
+    // to ValueVector across multiple EMIT outcomes.
+    // container.clear();
 
     // Loop over all input batches
 
     for (;;) {
       IterOutcome result = loadBatch();
 
-      // None means all batches have been read.
+      // NONE/EMIT means all batches have been read.
 
-      if (result == IterOutcome.NONE) {
+      if (result == IterOutcome.NONE || result == IterOutcome.EMIT) {
         break; }
 
       // Any outcome other than OK means something went wrong.
@@ -380,6 +395,8 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     }
 
     sortState = SortState.DELIVER;
+    // If we are here that means there is some data to be returned downstream. We have to prepare output container
+    prepareOutputContainer(resultsIterator);
     return IterOutcome.OK_NEW_SCHEMA;
   }
 
@@ -395,22 +412,24 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     // If this is the very first batch, then AbstractRecordBatch
     // already loaded it for us in buildSchema().
 
-    IterOutcome upstream;
     if (sortState == SortState.START) {
       sortState = SortState.LOAD;
-      upstream = IterOutcome.OK_NEW_SCHEMA;
+      lastKnownOutcome = IterOutcome.OK_NEW_SCHEMA;
+      firstBatchOfSchema = true;
     } else {
-      upstream = next(incoming);
+      lastKnownOutcome = next(incoming);
     }
-    switch (upstream) {
+    switch (lastKnownOutcome) {
     case NONE:
     case STOP:
-      return upstream;
+      return lastKnownOutcome;
     case OK_NEW_SCHEMA:
+      firstBatchOfSchema = true;
       setupSchema();
       // Fall through
 
     case OK:
+    case EMIT:
 
       // Add the batch to the in-memory generation, spilling if
       // needed.
@@ -431,9 +450,9 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
       }
       break;
     default:
-      throw new IllegalStateException("Unexpected iter outcome: " + upstream);
+      throw new IllegalStateException("Unexpected iter outcome: " + lastKnownOutcome);
     }
-    return IterOutcome.OK;
+    return lastKnownOutcome;
   }
 
   /**
@@ -574,5 +593,34 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
         esb.resultsIterator = null;
       }
     }
+  }
+
+  private void resetSortState() {
+    sortState = SortState.LOAD;
+  }
+
+  /**
+   * FixMe: Currently this will only work for cases when sort happens in memory without spilling
+   * @param sortResults
+   */
+  private void prepareOutputContainer(SortResults sortResults) {
+    Preconditions.checkArgument(sortResults.supportsEmit());
+    sortResults.updateSV4Index(outputSV4, context.getAllocator());
+
+    VectorContainer inputDataContainer = sortResults.getContainer();
+    if (firstBatchOfSchema) {
+      container.clear();
+      for (VectorWrapper<?> w : inputDataContainer) {
+        container.add(w.getValueVectors());
+      }
+      container.buildSchema(SelectionVectorMode.FOUR_BYTE);
+    } else {
+      int index = 0;
+      for (VectorWrapper<?> w : inputDataContainer) {
+        HyperVectorWrapper wrapper = (HyperVectorWrapper<?>) container.getValueVector(index++);
+        wrapper.updateVectorList(w.getValueVectors());
+      }
+    }
+    container.setRecordCount(outputSV4.getCount());
   }
 }

@@ -350,5 +350,21 @@ public class PriorityQueueCopierWrapper extends BaseSortWrapper {
 
     @Override
     public VectorContainer getContainer() { return outputContainer; }
+
+    @Override
+    public boolean supportsEmit() {
+      return false;
+    }
+
+    /**
+     * TODO: Should update below method if this SortResult is expected with EMIT outcome. Should allocate the buffer
+     * for SV4 and set indexes from container considering only 1 batch and record count in container
+     * @param inSV4
+     * @param allocator
+     */
+    @Override
+    public void updateSV4Index(SelectionVector4 inSV4, BufferAllocator allocator) {
+      throw new UnsupportedOperationException("EmptySortResults doesn't support any SV mode");
+    }
   }
 }

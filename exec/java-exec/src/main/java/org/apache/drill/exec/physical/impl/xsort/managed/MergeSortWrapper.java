@@ -32,6 +32,7 @@ import org.apache.drill.exec.expr.ClassGenerator.HoldingContainer;
 import org.apache.drill.exec.expr.CodeGenerator;
 import org.apache.drill.exec.expr.ExpressionTreeMaterializer;
 import org.apache.drill.exec.expr.fn.FunctionGenerationHelper;
+import org.apache.drill.exec.memory.BufferAllocator;
 import org.apache.drill.exec.ops.OperatorContext;
 import org.apache.drill.exec.physical.config.Sort;
 import org.apache.drill.exec.physical.impl.sort.RecordBatchData;
@@ -97,7 +98,8 @@ public class MergeSortWrapper extends BaseSortWrapper implements SortResults {
    * destination container, indexed by an SV4.
    *
    * @param batchGroups the complete set of in-memory batches
-   * @param outputBatchSize
+   * @param outputBatchSize output batch size for in-memory merge
+   * @return the sv4 for this operator
    */
 
   public void merge(List<BatchGroup.InputBatch> batchGroups, int outputBatchSize) {
@@ -252,4 +254,14 @@ public class MergeSortWrapper extends BaseSortWrapper implements SortResults {
 
   @Override
   public VectorContainer getContainer() { return destContainer; }
+
+  @Override
+  public boolean supportsEmit() {
+    return true;
+  }
+
+  @Override
+  public void updateSV4Index(SelectionVector4 inSV4, BufferAllocator allocator) {
+    inSV4.copy(sv4);
+  }
 }
