@@ -20,8 +20,11 @@ package org.apache.drill.exec.physical.impl.xsort.managed;
 import java.io.IOException;
 import java.util.List;
 
+import org.apache.drill.exec.expr.TypeHelper;
 import org.apache.drill.exec.memory.BufferAllocator;
 import org.apache.drill.exec.ops.OperatorContext;
+import org.apache.drill.exec.record.MaterializedField;
+import org.apache.drill.exec.record.RecordBatch.IterOutcome;
 import org.apache.drill.exec.record.RecordBatchSizer;
 import org.apache.drill.exec.physical.impl.xsort.MSortTemplate;
 import org.apache.drill.exec.physical.impl.xsort.managed.BatchGroup.InputBatch;
@@ -37,6 +40,9 @@ import org.apache.drill.exec.record.selection.SelectionVector2;
 import org.apache.drill.exec.record.selection.SelectionVector4;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.drill.exec.vector.ValueVector;
+
+import static org.apache.drill.exec.record.RecordBatch.IterOutcome.EMIT;
 
 /**
  * Implementation of the external sort which is wrapped into the Drill
@@ -73,6 +79,8 @@ public class SortImpl {
     int getRecordCount();
     SelectionVector2 getSv2();
     SelectionVector4 getSv4();
+    void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                               IterOutcome outcome, BatchSchema schema);
   }
 
   public static class EmptyResults implements SortResults {
@@ -80,8 +88,6 @@ public class SortImpl {
     private final VectorContainer dest;
 
     public EmptyResults(VectorContainer dest) {
-      dest.setRecordCount(0);
-      dest.buildSchema(SelectionVectorMode.NONE);
       this.dest = dest;
     }
 
@@ -105,6 +111,25 @@ public class SortImpl {
 
     @Override
     public VectorContainer getContainer() { return dest; }
+
+    @Override
+    public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                                      IterOutcome outcome, BatchSchema schema) {
+
+      if (container.getNumberOfColumns() == 0) {
+        for (MaterializedField field : schema) {
+          final ValueVector vv = TypeHelper.getNewVector(field, container.getAllocator());
+          vv.clear();
+          final ValueVector[] hyperVector = { vv };
+          container.add(hyperVector, true);
+        }
+        container.buildSchema(SelectionVectorMode.FOUR_BYTE);
+      } // since it's an empty batch no need to do anything in else
+
+      sv4.clear();
+      container.zeroVectors();
+      container.setRecordCount(0);
+    }
   }
 
   /**
@@ -169,6 +194,16 @@ public class SortImpl {
 
     @Override
     public VectorContainer getContainer() { return outputContainer; }
+
+    @Override
+    public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                                      IterOutcome outcome, BatchSchema schema) {
+      if (outcome == EMIT) {
+        throw new UnsupportedOperationException("SingleBatchResults for sort with SV2 is currently not supported with" +
+          " EMIT outcome");
+      }
+      // Not used in Sort so don't need to do anything for now
+    }
   }
 
   private final SortConfig config;
@@ -530,6 +565,22 @@ public class SortImpl {
     int spillBatchRowCount = memManager.getSpillBatchRowCount();
     spilledRuns.mergeRuns(targetCount, mergeMemoryPool, spillBatchRowCount, allocHelper);
     metrics.incrMergeCount();
+  }
+
+  /**
+   * Method to set schema to the output batch reference. It is currently needed for the case when there is no data to
+   * produce for output but still schema needs to be present. In regular case {@link EmptyResults} is created for no
+   * data and NONE is returned hence a schema is not required in the output batch. But in presence of EMIT when it
+   * returns an empty batch it should also have schema with it. Hence setting schema in output batch once it's known.
+   * @param schema - schema used to produce output batches
+   */
+  private void setContainerSchema(BatchSchema schema) {
+    for (MaterializedField field : schema) {
+      ValueVector v = outputBatch.addOrGet(field);
+      v.clear();
+    }
+    outputBatch.buildSchema(SelectionVectorMode.NONE);
+    outputBatch.setRecordCount(0);
   }
 
   public void close() {
