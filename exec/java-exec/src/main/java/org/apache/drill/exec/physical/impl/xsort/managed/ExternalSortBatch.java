@@ -315,7 +315,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
       return load();
     case LOAD:
       resetSortState();
-      return load();
+      return (sortState == SortState.DONE) ? NONE : load();
     case DELIVER:
       return nextOutputBatch();
     default:
@@ -348,8 +348,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
       // after receiving a NONE result code. See DRILL-5656.
 
       if (! this.retainInMemoryBatchesOnNone || (lastKnownOutcome == EMIT)) {
-        resultsIterator.close();
-        resultsIterator = null;
+        zeroResources();
       }
     }
     return getFinalOutcome();
@@ -393,16 +392,13 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     // BUG: TODO: What if initial set of batches are empty. Need to return OK_NEW_SCHEMA and EMIT
     resultsIterator = sortImpl.startMerge();
     if (! resultsIterator.next()) {
-
       if (result == NONE) {
         sortState = SortState.DONE;
-      } else if (firstBatchOfSchema) {
-        sortState = SortState.DELIVER;
+        return NONE;
       } else {
-        sortState = SortState.LOAD;
+        prepareOutputContainer(resultsIterator);
+        return getFinalOutcome();
       }
-      prepareOutputContainer(resultsIterator);
-      return getFinalOutcome();
     }
 
     // sort may have prematurely exited due to shouldContinue() returning false.
@@ -543,7 +539,10 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
 
     // Then close the "guts" of the sort operation.
     try {
-      releaseResources();
+      if (sortImpl != null) {
+        sortImpl.close();
+        sortImpl = null;
+      }
     } catch (RuntimeException e) {
       ex = (ex == null) ? e : ex;
     }
@@ -553,6 +552,8 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     // (when closing the operator context) after the super call.
 
     try {
+      outputWrapperContainer.clear();
+      outputSV4.clear();
       super.close();
     } catch (RuntimeException e) {
       ex = (ex == null) ? e : ex;
@@ -600,30 +601,43 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     }
     if (incoming instanceof ExternalSortBatch) {
       ExternalSortBatch esb = (ExternalSortBatch) incoming;
-      if (esb.resultsIterator != null) {
-        esb.resultsIterator.close();
-        esb.resultsIterator = null;
-      }
+      esb.zeroResources();
     }
   }
 
-  private void releaseResources() {
+  private void zeroResources() {
+    if (resultsIterator != null) {
+      resultsIterator.close();
+    }
+    // We only zero vectors here but clear them in close
     outputWrapperContainer.zeroVectors();
     outputSV4.clear();
     container.zeroVectors();
+  }
+
+  private void releaseResources() {
+    if (sortState == SortState.DONE) {
+      if (! this.retainInMemoryBatchesOnNone) {
+        zeroResources();
+      }
+    } else {
+      zeroResources();
+    }
 
     // Close sortImpl for this boundary
     if (sortImpl != null) {
       sortImpl.close();
-      sortImpl = null;
     }
   }
 
   private void resetSortState() {
-    releaseResources();
     sortState = (lastKnownOutcome == EMIT) ? SortState.LOAD : SortState.DONE;
-    sortImpl = createNewSortImpl();
-    resultsIterator = new SortImpl.EmptyResults(outputWrapperContainer);
+    releaseResources();
+
+    if (sortState != SortState.DONE) {
+      sortImpl = createNewSortImpl();
+      resultsIterator = new SortImpl.EmptyResults(outputWrapperContainer);
+    }
   }
 
   /**
@@ -645,6 +659,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     if (firstBatchOfSchema) {
       outcomeToReturn = OK_NEW_SCHEMA;
       firstBatchOfSchema = false;
+      sortState = SortState.DELIVER;
     } else if (getRecordCount() == 0) {
       outcomeToReturn = lastKnownOutcome == EMIT ? EMIT : NONE;
       resetSortState();
@@ -654,6 +669,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
       outcomeToReturn = hasMoreRecords ? OK : EMIT;
     } else {
       outcomeToReturn = OK;
+      sortState = SortState.DELIVER;
     }
     return outcomeToReturn;
   }
