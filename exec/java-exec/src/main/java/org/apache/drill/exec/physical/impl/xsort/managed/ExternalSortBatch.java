@@ -623,7 +623,6 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     releaseResources();
     sortState = (lastKnownOutcome == EMIT) ? SortState.LOAD : SortState.DONE;
     sortImpl = createNewSortImpl();
-    sortImpl.setSchema(schema);
     resultsIterator = new SortImpl.EmptyResults(outputWrapperContainer);
   }
 
