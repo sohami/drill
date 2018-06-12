@@ -34,6 +34,7 @@ import org.apache.drill.exec.ops.OperatorContext;
 import org.apache.drill.exec.physical.impl.xsort.managed.SortImpl.SortResults;
 import org.apache.drill.exec.record.BatchSchema;
 import org.apache.drill.exec.record.MaterializedField;
+import org.apache.drill.exec.record.RecordBatch;
 import org.apache.drill.exec.record.VectorAccessible;
 import org.apache.drill.exec.record.VectorAccessibleUtilities;
 import org.apache.drill.exec.record.VectorContainer;
@@ -45,6 +46,8 @@ import org.apache.drill.exec.vector.CopyUtil;
 import org.apache.drill.exec.vector.ValueVector;
 
 import com.google.common.base.Stopwatch;
+
+import static org.apache.drill.exec.record.RecordBatch.IterOutcome.EMIT;
 
 /**
  * Manages a {@link PriorityQueueCopier} instance produced from code generation.
@@ -346,25 +349,35 @@ public class PriorityQueueCopierWrapper extends BaseSortWrapper {
     public SelectionVector4 getSv4() { return null; }
 
     @Override
+    public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                                      RecordBatch.IterOutcome outcome) {
+      if (outcome == EMIT) {
+        throw new UnsupportedOperationException("BatchMerger SortResults is not supported with EMIT outcome. This is " +
+          "used when spilling happened with EMIT outcome which is unexpected case");
+      }
+
+      VectorContainer dataContainer = getContainer();
+      // First output batch, let's create the container.
+      if (container.getNumberOfColumns() == 0) {
+        for (VectorWrapper<?> vw : dataContainer) {
+          container.add(vw.getValueVector());
+        }
+        // In future when we want to support spilling with EMIT outcome then we have to create SV4 container all the
+        // time. But that will have effect of copying data again by SelectionVectorRemover from SV4 to SV_None. Other
+        // than that we have to send OK_NEW_SCHEMA each time. There can be other operators like StreamAgg in downstream
+        // as well, so we cannot have special handlnig in SVRemover for EMIT phase.
+        container.buildSchema(BatchSchema.SelectionVectorMode.NONE);
+      } else { // preserve ValueVectors references for subsequent output batches
+        container.transferIn(dataContainer);
+      }
+      // Set the record count on output container
+      container.setRecordCount(getRecordCount());
+    }
+
+    @Override
     public SelectionVector2 getSv2() { return null; }
 
     @Override
     public VectorContainer getContainer() { return outputContainer; }
-
-    @Override
-    public boolean supportsEmit() {
-      return false;
-    }
-
-    /**
-     * TODO: Should update below method if this SortResult is expected with EMIT outcome. Should allocate the buffer
-     * for SV4 and set indexes from container considering only 1 batch and record count in container
-     * @param inSV4
-     * @param allocator
-     */
-    @Override
-    public void updateSV4Index(SelectionVector4 inSV4, BufferAllocator allocator) {
-      throw new UnsupportedOperationException("EmptySortResults doesn't support any SV mode");
-    }
   }
 }

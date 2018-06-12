@@ -17,7 +17,6 @@
  */
 package org.apache.drill.exec.physical.impl.xsort.managed;
 
-import com.google.common.base.Preconditions;
 import org.apache.drill.common.exceptions.UserException;
 import org.apache.drill.exec.ops.FragmentContext;
 import org.apache.drill.exec.ops.MetricDef;
@@ -28,7 +27,6 @@ import org.apache.drill.exec.physical.impl.xsort.managed.SortImpl.SortResults;
 import org.apache.drill.exec.record.AbstractRecordBatch;
 import org.apache.drill.exec.record.BatchSchema;
 import org.apache.drill.exec.record.BatchSchema.SelectionVectorMode;
-import org.apache.drill.exec.record.HyperVectorWrapper;
 import org.apache.drill.exec.record.RecordBatch;
 import org.apache.drill.exec.record.SchemaUtil;
 import org.apache.drill.exec.record.VectorContainer;
@@ -40,6 +38,12 @@ import org.apache.drill.exec.testing.ControlsInjector;
 import org.apache.drill.exec.testing.ControlsInjectorFactory;
 import org.apache.drill.exec.vector.ValueVector;
 import org.apache.drill.exec.vector.complex.AbstractContainerVector;
+
+import static org.apache.drill.exec.record.RecordBatch.IterOutcome.EMIT;
+import static org.apache.drill.exec.record.RecordBatch.IterOutcome.NONE;
+import static org.apache.drill.exec.record.RecordBatch.IterOutcome.OK;
+import static org.apache.drill.exec.record.RecordBatch.IterOutcome.OK_NEW_SCHEMA;
+import static org.apache.drill.exec.record.RecordBatch.IterOutcome.STOP;
 
 /**
  * External sort batch: a sort batch which can spill to disk in
@@ -189,6 +193,8 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
   private enum SortState { START, LOAD, DELIVER, DONE }
   private SortState sortState = SortState.START;
 
+  private SortConfig sortConfig;
+
   private SortImpl sortImpl;
 
   private IterOutcome lastKnownOutcome;
@@ -224,13 +230,10 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     super(popConfig, context, true);
     this.incoming = incoming;
     outputWrapperContainer = new VectorContainer(context.getAllocator());
-
-    SortConfig sortConfig = new SortConfig(context.getConfig(), context.getOptions());
-    SpillSet spillSet = new SpillSet(context.getConfig(), context.getHandle(), popConfig);
+    outputSV4 = new SelectionVector4(context.getAllocator(), 0);
+    sortConfig = new SortConfig(context.getConfig(), context.getOptions());
     oContext.setInjector(injector);
-    PriorityQueueCopierWrapper copierHolder = new PriorityQueueCopierWrapper(oContext);
-    SpilledRuns spilledRuns = new SpilledRuns(oContext, spillSet, copierHolder);
-    sortImpl = new SortImpl(oContext, sortConfig, spilledRuns, outputWrapperContainer);
+    sortImpl = createNewSortImpl();
 
     // The upstream operator checks on record count before we have
     // results. Create an empty result set temporarily to handle
@@ -241,19 +244,20 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
 
   @Override
   public int getRecordCount() {
-    return outputSV4.getCount();
+    return resultsIterator.getRecordCount();
   }
 
   @Override
   public SelectionVector4 getSelectionVector4() {
+    // Return outputSV4 instead of resultsIterator. For resultsIterator which has null SV4 outputSV4 will be empty
+    // instead. But Sort will ideally fail in those cases while preparing output container
     return outputSV4;
   }
 
-  /*
   @Override
   public SelectionVector2 getSelectionVector2() {
     return resultsIterator.getSv2();
-  }*/
+  }
 
   /**
    * Called by {@link AbstractRecordBatch} as a fast-path to obtain
@@ -306,9 +310,11 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
   public IterOutcome innerNext() {
     switch (sortState) {
     case DONE:
-      return IterOutcome.NONE;
+      return NONE;
     case START:
+      return load();
     case LOAD:
+      resetSortState();
       return load();
     case DELIVER:
       return nextOutputBatch();
@@ -318,13 +324,17 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
   }
 
   private IterOutcome nextOutputBatch() {
+    // Call next on outputSV4 for it's state to progress in parallel to resultsIterator state. This is only effective
+    // in non-spill scenario
+    outputSV4.next();
+
+    // But if results iterator next returns true that means it has more results to pass
     if (resultsIterator.next()) {
+      container.setRecordCount(getRecordCount());
       injector.injectUnchecked(context.getExecutionControls(), INTERRUPTION_WHILE_MERGING);
-      return IterOutcome.OK;
     } else {
       logger.trace("Deliver phase complete: Returned {} batches, {} records",
                     resultsIterator.getBatchCount(), resultsIterator.getRecordCount());
-      sortState = SortState.DONE;
 
       // Close the iterator here to release any remaining resources such
       // as spill files. This is important when a query has a join: the
@@ -337,12 +347,12 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
       // the StreamingAgg retains a reference to that data that it will use
       // after receiving a NONE result code. See DRILL-5656.
 
-      if (! this.retainInMemoryBatchesOnNone) {
+      if (! this.retainInMemoryBatchesOnNone || (lastKnownOutcome == EMIT)) {
         resultsIterator.close();
         resultsIterator = null;
       }
-      return IterOutcome.NONE;
     }
+    return getFinalOutcome();
   }
 
   /**
@@ -365,39 +375,46 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
 
     // Loop over all input batches
 
+    IterOutcome result = OK;
     for (;;) {
-      IterOutcome result = loadBatch();
+      result = loadBatch();
 
-      // NONE/EMIT means all batches have been read.
-
-      if (result == IterOutcome.NONE || result == IterOutcome.EMIT) {
+      // NONE/EMIT means all batches have been read at this record boundary
+      if (result == NONE || result == EMIT) {
         break; }
 
-      // Any outcome other than OK means something went wrong.
+      // if result is STOP that means something went wrong.
 
-      if (result != IterOutcome.OK) {
+      if (result == STOP) {
         return result; }
-    }
+    } // continue for OK/OK_NEW_SCHEMA
 
     // Anything to actually sort?
-
+    // BUG: TODO: What if initial set of batches are empty. Need to return OK_NEW_SCHEMA and EMIT
     resultsIterator = sortImpl.startMerge();
     if (! resultsIterator.next()) {
-      sortState = SortState.DONE;
-      return IterOutcome.NONE;
+
+      if (result == NONE) {
+        sortState = SortState.DONE;
+      } else if (firstBatchOfSchema) {
+        sortState = SortState.DELIVER;
+      } else {
+        sortState = SortState.LOAD;
+      }
+      prepareOutputContainer(resultsIterator);
+      return getFinalOutcome();
     }
 
     // sort may have prematurely exited due to shouldContinue() returning false.
 
     if (!context.getExecutorState().shouldContinue()) {
       sortState = SortState.DONE;
-      return IterOutcome.STOP;
+      return STOP;
     }
 
-    sortState = SortState.DELIVER;
     // If we are here that means there is some data to be returned downstream. We have to prepare output container
     prepareOutputContainer(resultsIterator);
-    return IterOutcome.OK_NEW_SCHEMA;
+    return getFinalOutcome();
   }
 
   /**
@@ -414,8 +431,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
 
     if (sortState == SortState.START) {
       sortState = SortState.LOAD;
-      lastKnownOutcome = IterOutcome.OK_NEW_SCHEMA;
-      firstBatchOfSchema = true;
+      lastKnownOutcome = OK_NEW_SCHEMA;
     } else {
       lastKnownOutcome = next(incoming);
     }
@@ -522,16 +538,12 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
         resultsIterator = null;
       }
     } catch (RuntimeException e) {
-      ex = (ex == null) ? e : ex;
+      ex = e;
     }
 
     // Then close the "guts" of the sort operation.
-
     try {
-      if (sortImpl != null) {
-        sortImpl.close();
-        sortImpl = null;
-      }
+      releaseResources();
     } catch (RuntimeException e) {
       ex = (ex == null) ? e : ex;
     }
@@ -595,32 +607,62 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     }
   }
 
+  private void releaseResources() {
+    outputWrapperContainer.zeroVectors();
+    outputSV4.clear();
+    container.zeroVectors();
+
+    // Close sortImpl for this boundary
+    if (sortImpl != null) {
+      sortImpl.close();
+      sortImpl = null;
+    }
+  }
+
   private void resetSortState() {
-    sortState = SortState.LOAD;
+    releaseResources();
+    sortState = (lastKnownOutcome == EMIT) ? SortState.LOAD : SortState.DONE;
+    sortImpl = createNewSortImpl();
+    sortImpl.setSchema(schema);
+    resultsIterator = new SortImpl.EmptyResults(outputWrapperContainer);
   }
 
   /**
    * FixMe: Currently this will only work for cases when sort happens in memory without spilling
-   * @param sortResults
+   * @param sortResults - Final sorted result which contains the container with data
    */
   private void prepareOutputContainer(SortResults sortResults) {
-    Preconditions.checkArgument(sortResults.supportsEmit());
-    sortResults.updateSV4Index(outputSV4, context.getAllocator());
-
-    VectorContainer inputDataContainer = sortResults.getContainer();
     if (firstBatchOfSchema) {
       container.clear();
-      for (VectorWrapper<?> w : inputDataContainer) {
-        container.add(w.getValueVectors());
-      }
-      container.buildSchema(SelectionVectorMode.FOUR_BYTE);
     } else {
-      int index = 0;
-      for (VectorWrapper<?> w : inputDataContainer) {
-        HyperVectorWrapper wrapper = (HyperVectorWrapper<?>) container.getValueVector(index++);
-        wrapper.updateVectorList(w.getValueVectors());
-      }
+      container.zeroVectors();
     }
-    container.setRecordCount(outputSV4.getCount());
+    sortResults.updateOutputContainer(container, outputSV4, lastKnownOutcome);
+  }
+
+  private IterOutcome getFinalOutcome() {
+    IterOutcome outcomeToReturn;
+
+    if (firstBatchOfSchema) {
+      outcomeToReturn = OK_NEW_SCHEMA;
+      firstBatchOfSchema = false;
+    } else if (getRecordCount() == 0) {
+      outcomeToReturn = lastKnownOutcome == EMIT ? EMIT : NONE;
+      resetSortState();
+    } else if (lastKnownOutcome == EMIT) {
+      final boolean hasMoreRecords = outputSV4.hasNext();
+      sortState = hasMoreRecords ? SortState.DELIVER : SortState.LOAD;
+      outcomeToReturn = hasMoreRecords ? OK : EMIT;
+    } else {
+      outcomeToReturn = OK;
+    }
+    return outcomeToReturn;
+  }
+
+  private SortImpl createNewSortImpl() {
+    SpillSet spillSet = new SpillSet(context.getConfig(), context.getHandle(), popConfig);
+    PriorityQueueCopierWrapper copierHolder = new PriorityQueueCopierWrapper(oContext);
+    SpilledRuns spilledRuns = new SpilledRuns(oContext, spillSet, copierHolder);
+    return new SortImpl(oContext, sortConfig, spilledRuns, outputWrapperContainer);
   }
 }

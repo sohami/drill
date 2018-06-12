@@ -32,13 +32,16 @@ import org.apache.drill.exec.expr.ClassGenerator.HoldingContainer;
 import org.apache.drill.exec.expr.CodeGenerator;
 import org.apache.drill.exec.expr.ExpressionTreeMaterializer;
 import org.apache.drill.exec.expr.fn.FunctionGenerationHelper;
-import org.apache.drill.exec.memory.BufferAllocator;
 import org.apache.drill.exec.ops.OperatorContext;
 import org.apache.drill.exec.physical.config.Sort;
 import org.apache.drill.exec.physical.impl.sort.RecordBatchData;
 import org.apache.drill.exec.physical.impl.sort.SortRecordBatchBuilder;
 import org.apache.drill.exec.physical.impl.xsort.managed.SortImpl.SortResults;
+import org.apache.drill.exec.record.BatchSchema;
+import org.apache.drill.exec.record.HyperVectorWrapper;
+import org.apache.drill.exec.record.RecordBatch;
 import org.apache.drill.exec.record.VectorContainer;
+import org.apache.drill.exec.record.VectorWrapper;
 import org.apache.drill.exec.record.selection.SelectionVector2;
 import org.apache.drill.exec.record.selection.SelectionVector4;
 
@@ -222,7 +225,7 @@ public class MergeSortWrapper extends BaseSortWrapper implements SortResults {
         builder = null;
       }
     } catch (RuntimeException e) {
-      ex = (ex == null) ? e : ex;
+      ex = e;
     }
     try {
       if (mSorter != null) {
@@ -250,18 +253,30 @@ public class MergeSortWrapper extends BaseSortWrapper implements SortResults {
   public SelectionVector4 getSv4() { return sv4; }
 
   @Override
+  public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                                    RecordBatch.IterOutcome outcome) {
+
+    final VectorContainer inputDataContainer = getContainer();
+
+    if (container.getNumberOfColumns() == 0) {
+      for (VectorWrapper<?> w : inputDataContainer) {
+        container.add(w.getValueVectors());
+      }
+      container.buildSchema(BatchSchema.SelectionVectorMode.FOUR_BYTE);
+    } else {
+      int index = 0;
+      for (VectorWrapper<?> w : inputDataContainer) {
+        HyperVectorWrapper wrapper = (HyperVectorWrapper<?>) container.getValueVector(index++);
+        wrapper.updateVectorList(w.getValueVectors());
+      }
+    }
+    sv4.copy(getSv4());
+    container.setRecordCount(getRecordCount());
+  }
+
+  @Override
   public SelectionVector2 getSv2() { return null; }
 
   @Override
   public VectorContainer getContainer() { return destContainer; }
-
-  @Override
-  public boolean supportsEmit() {
-    return true;
-  }
-
-  @Override
-  public void updateSV4Index(SelectionVector4 inSV4, BufferAllocator allocator) {
-    inSV4.copy(sv4);
-  }
 }
