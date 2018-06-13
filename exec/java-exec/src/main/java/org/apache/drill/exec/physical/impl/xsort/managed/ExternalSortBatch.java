@@ -636,6 +636,8 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
 
     if (sortState != SortState.DONE) {
       sortImpl = createNewSortImpl();
+      // Set the schema since with reset the information is lost
+      sortImpl.setSchema(schema);
       resultsIterator = new SortImpl.EmptyResults(outputWrapperContainer);
     }
   }

@@ -122,6 +122,9 @@ public class SortImpl {
           dest.addOrGet(field);
         }
 
+        dest.buildSchema(SelectionVectorMode.NONE);
+        dest.setRecordCount(0);
+
         ExpandableHyperContainer dataContainer = new ExpandableHyperContainer(dest);
         for (VectorWrapper<?> vw : dataContainer) {
           container.add(vw.getValueVectors());
