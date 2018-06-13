@@ -254,7 +254,7 @@ public class MergeSortWrapper extends BaseSortWrapper implements SortResults {
 
   @Override
   public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
-                                    RecordBatch.IterOutcome outcome) {
+                                    RecordBatch.IterOutcome outcome, BatchSchema schema) {
 
     final VectorContainer inputDataContainer = getContainer();
 

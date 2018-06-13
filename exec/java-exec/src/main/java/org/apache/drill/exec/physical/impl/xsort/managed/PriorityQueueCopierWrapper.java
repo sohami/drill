@@ -350,7 +350,7 @@ public class PriorityQueueCopierWrapper extends BaseSortWrapper {
 
     @Override
     public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
-                                      RecordBatch.IterOutcome outcome) {
+                                      RecordBatch.IterOutcome outcome, BatchSchema schema) {
       if (outcome == EMIT) {
         throw new UnsupportedOperationException("BatchMerger SortResults is not supported with EMIT outcome. This is " +
           "used when spilling happened with EMIT outcome which is unexpected case");

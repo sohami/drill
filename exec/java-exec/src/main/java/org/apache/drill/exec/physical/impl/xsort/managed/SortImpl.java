@@ -79,7 +79,8 @@ public class SortImpl {
     int getRecordCount();
     SelectionVector2 getSv2();
     SelectionVector4 getSv4();
-    void updateOutputContainer(VectorContainer container, SelectionVector4 sv4, IterOutcome outcome);
+    void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                               IterOutcome outcome, BatchSchema schema);
   }
 
   public static class EmptyResults implements SortResults {
@@ -112,10 +113,16 @@ public class SortImpl {
     public VectorContainer getContainer() { return dest; }
 
     @Override
-    public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4, IterOutcome outcome) {
-      ExpandableHyperContainer dataContainer = new ExpandableHyperContainer(dest);
+    public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                                      IterOutcome outcome, BatchSchema schema) {
 
       if (container.getNumberOfColumns() == 0) {
+        dest.clear();
+        for (MaterializedField field : schema) {
+          dest.addOrGet(field);
+        }
+
+        ExpandableHyperContainer dataContainer = new ExpandableHyperContainer(dest);
         for (VectorWrapper<?> vw : dataContainer) {
           container.add(vw.getValueVectors());
         }
@@ -192,7 +199,8 @@ public class SortImpl {
     public VectorContainer getContainer() { return outputContainer; }
 
     @Override
-    public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4, IterOutcome outcome) {
+    public void updateOutputContainer(VectorContainer container, SelectionVector4 sv4,
+                                      IterOutcome outcome, BatchSchema schema) {
       if (outcome == EMIT) {
         throw new UnsupportedOperationException("SingleBatchResults for sort with SV2 is currently not supported with" +
           " EMIT outcome");
@@ -252,7 +260,7 @@ public class SortImpl {
   public void setSchema(BatchSchema schema) {
     bufferedBatches.setSchema(schema);
     spilledRuns.setSchema(schema);
-    setContainerSchema(schema);
+    //setContainerSchema(schema);
   }
 
   public boolean forceSpill() {

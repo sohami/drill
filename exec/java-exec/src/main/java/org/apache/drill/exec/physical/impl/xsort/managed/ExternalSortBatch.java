@@ -650,7 +650,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     } else {
       container.zeroVectors();
     }
-    sortResults.updateOutputContainer(container, outputSV4, lastKnownOutcome);
+    sortResults.updateOutputContainer(container, outputSV4, lastKnownOutcome, schema);
   }
 
   private IterOutcome getFinalOutcome() {
