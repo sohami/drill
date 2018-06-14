@@ -332,7 +332,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     if (resultsIterator.next()) {
       container.setRecordCount(getRecordCount());
       injector.injectUnchecked(context.getExecutionControls(), INTERRUPTION_WHILE_MERGING);
-    } else {
+    } /*else {
       logger.trace("Deliver phase complete: Returned {} batches, {} records",
                     resultsIterator.getBatchCount(), resultsIterator.getRecordCount());
 
@@ -350,7 +350,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
       if (! this.retainInMemoryBatchesOnNone || (lastKnownOutcome == EMIT)) {
         zeroResources();
       }
-    }
+    }*/
     return getFinalOutcome();
   }
 
@@ -365,12 +365,8 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
   private IterOutcome load() {
     logger.trace("Start of load phase");
 
-    // Clear the temporary container created by
-    // buildSchema().
-
-    // Cannot clear container for each load with EMIT outcome support since we need to maintain the references
-    // to ValueVector across multiple EMIT outcomes.
-    // container.clear();
+    // Don't clear the temporary container created by buildSchema() after each load since across EMIT outcome we have
+    // to maintain the ValueVector references for downstream operators
 
     // Loop over all input batches
 
@@ -386,16 +382,16 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
 
       if (result == STOP) {
         return result; }
-    } // continue for OK/OK_NEW_SCHEMA
+    }
 
     // Anything to actually sort?
-    // BUG: TODO: What if initial set of batches are empty. Need to return OK_NEW_SCHEMA and EMIT
     resultsIterator = sortImpl.startMerge();
     if (! resultsIterator.next()) {
+      // If there is no records to sort and we got NONE then just return NONE
       if (result == NONE) {
         sortState = SortState.DONE;
         return NONE;
-      } else {
+      } else { // EMIT is received with empty batches so send an empty batch
         prepareOutputContainer(resultsIterator);
         return getFinalOutcome();
       }
@@ -601,10 +597,12 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     }
     if (incoming instanceof ExternalSortBatch) {
       ExternalSortBatch esb = (ExternalSortBatch) incoming;
-      esb.zeroResources();
+      //esb.zeroResources();
+      esb.releaseResources();
     }
   }
 
+  /*
   private void zeroResources() {
     if (resultsIterator != null) {
       resultsIterator.close();
@@ -613,15 +611,32 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     outputWrapperContainer.zeroVectors();
     outputSV4.clear();
     container.zeroVectors();
-  }
+  }*/
 
   private void releaseResources() {
-    if (sortState == SortState.DONE) {
-      if (! this.retainInMemoryBatchesOnNone) {
-        zeroResources();
+    // This means if it has received NONE outcome and flag to retain is false OR if it has seen an EMIT
+    // then release the resources
+    if ((sortState == SortState.DONE && !this.retainInMemoryBatchesOnNone) ||
+      (sortState == SortState.LOAD)) {
+
+      // Close the iterator here to release any remaining resources such
+      // as spill files. This is important when a query has a join: the
+      // first branch sort may complete before the second branch starts;
+      // it may be quite a while after returning the last batch before the
+      // fragment executor calls this operator's close method.
+      //
+      // Note however, that the StreamingAgg operator REQUIRES that the sort
+      // retain the batches behind an SV4 when doing an in-memory sort because
+      // the StreamingAgg retains a reference to that data that it will use
+      // after receiving a NONE result code. See DRILL-5656.
+      //zeroResources();
+      if (resultsIterator != null) {
+        resultsIterator.close();
       }
-    } else {
-      zeroResources();
+      // We only zero vectors for actual output container
+      outputWrapperContainer.clear();
+      outputSV4.clear();
+      container.zeroVectors();
     }
 
     // Close sortImpl for this boundary
@@ -634,7 +649,7 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     sortState = (lastKnownOutcome == EMIT) ? SortState.LOAD : SortState.DONE;
     releaseResources();
 
-    if (sortState != SortState.DONE) {
+    if (lastKnownOutcome == EMIT) {
       sortImpl = createNewSortImpl();
       // Set the schema since with reset the information is lost
       sortImpl.setSchema(schema);
@@ -643,7 +658,13 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
   }
 
   /**
-   * FixMe: Currently this will only work for cases when sort happens in memory without spilling
+   * Based on first batch for this schema or not it either clears off the output container or just zero down the vectors
+   * Then calls {@link SortResults#updateOutputContainer(VectorContainer, SelectionVector4, IterOutcome, BatchSchema)}
+   * to populate the output container of sort with results data. It is done this way for the support of EMIT outcome
+   * where SORT will return results multiple time in same minor fragment so there needs a way to preserve the
+   * ValueVector references across output batches.
+   * However it currently only supports SortResults of type EmptyResults and MergeSortWrapper. We don't expect
+   * spilling to happen in EMIT outcome scenario hence it's not supported now.
    * @param sortResults - Final sorted result which contains the container with data
    */
   private void prepareOutputContainer(SortResults sortResults) {
@@ -655,6 +676,10 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     sortResults.updateOutputContainer(container, outputSV4, lastKnownOutcome, schema);
   }
 
+  /**
+   * Provides the final IterOutcome which Sort should return downstream with current output batch.
+   * @return
+   */
   private IterOutcome getFinalOutcome() {
     IterOutcome outcomeToReturn;
 
@@ -676,6 +701,10 @@ public class ExternalSortBatch extends AbstractRecordBatch<ExternalSort> {
     return outcomeToReturn;
   }
 
+  /**
+   * Method to create new instances of SortImpl
+   * @return SortImpl
+   */
   private SortImpl createNewSortImpl() {
     SpillSet spillSet = new SpillSet(context.getConfig(), context.getHandle(), popConfig);
     PriorityQueueCopierWrapper copierHolder = new PriorityQueueCopierWrapper(oContext);

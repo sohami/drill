@@ -20,9 +20,9 @@ package org.apache.drill.exec.physical.impl.xsort.managed;
 import java.io.IOException;
 import java.util.List;
 
+import org.apache.drill.exec.expr.TypeHelper;
 import org.apache.drill.exec.memory.BufferAllocator;
 import org.apache.drill.exec.ops.OperatorContext;
-import org.apache.drill.exec.record.ExpandableHyperContainer;
 import org.apache.drill.exec.record.MaterializedField;
 import org.apache.drill.exec.record.RecordBatch.IterOutcome;
 import org.apache.drill.exec.record.RecordBatchSizer;
@@ -117,17 +117,11 @@ public class SortImpl {
                                       IterOutcome outcome, BatchSchema schema) {
 
       if (container.getNumberOfColumns() == 0) {
-        dest.clear();
         for (MaterializedField field : schema) {
-          dest.addOrGet(field);
-        }
-
-        dest.buildSchema(SelectionVectorMode.NONE);
-        dest.setRecordCount(0);
-
-        ExpandableHyperContainer dataContainer = new ExpandableHyperContainer(dest);
-        for (VectorWrapper<?> vw : dataContainer) {
-          container.add(vw.getValueVectors());
+          final ValueVector vv = TypeHelper.getNewVector(field, container.getAllocator());
+          vv.clear();
+          final ValueVector[] hyperVector = { vv };
+          container.add(hyperVector, true);
         }
         container.buildSchema(SelectionVectorMode.FOUR_BYTE);
       } // since it's an empty batch no need to do anything in else
@@ -263,7 +257,6 @@ public class SortImpl {
   public void setSchema(BatchSchema schema) {
     bufferedBatches.setSchema(schema);
     spilledRuns.setSchema(schema);
-    //setContainerSchema(schema);
   }
 
   public boolean forceSpill() {
