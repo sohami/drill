@@ -98,6 +98,8 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
   // SORABH: Prototype change
   private boolean hasRemainderForLeftJoin = false;
 
+  private ValueVector IMPLICIT_VECTOR;
+
   /* ****************************************************************************************************************
    * Public Methods
    * ****************************************************************************************************************/
@@ -977,6 +979,9 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
     for (final VectorWrapper<?> vectorWrapper : right) {
       MaterializedField rightField = vectorWrapper.getField();
       if (excludedFieldNames.contains(rightField.getName())) {
+        if (rightField.getName().equals(IMPLICIT_COLUMN)) {
+          IMPLICIT_VECTOR = vectorWrapper.getValueVector();
+        }
         continue;
       }
 
@@ -1082,7 +1087,8 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
 
   // SORABH: Prototype change
   private Map<Integer, Integer> getRowIdToFreqMap() {
-    final ValueVector rowId = right.getContainer().getValueVector(0).getValueVector();
+    //final ValueVector rowId = right.getContainer().getValueVector(0).getValueVector();
+    final ValueVector rowId = IMPLICIT_VECTOR;
     Map<Integer, Integer> indexToFreq = new HashMap<>();
 
     int prevRowId = (int)(rowId.getAccessor().getObject(rightJoinIndex));
@@ -1125,7 +1131,8 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
 
     // SORABH: Prototype change
     // Assuming that first vector in right batch is for IMPLICIT_COLUMN.
-    final ValueVector rowId = right.getContainer().getValueVector(0).getValueVector();
+    //final ValueVector rowId = right.getContainer().getValueVector(0).getValueVector();
+    final ValueVector rowId = IMPLICIT_VECTOR;
     // get a mapping of number of rows for each rowId present in current right side batch
     final Map<Integer, Integer> indexToFreq = getRowIdToFreqMap();
 
