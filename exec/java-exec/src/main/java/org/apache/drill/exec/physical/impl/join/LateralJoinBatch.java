@@ -123,25 +123,21 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
    * Handles cases where previous output batch got full after processing all the batches from right side for a left
    * side batch. But there are still few unprocessed rows in left batch which cannot be ignored because JoinType is
    * LeftJoin.
+   * @return - true if all the rows in left batch is produced in output container
+   *           false if there is still some rows pending in left incoming container
    */
-  private void handleRemainingLeftRows() {
+  private boolean handleRemainingLeftRows() {
     Preconditions.checkState(popConfig.getJoinType() == JoinRelType.LEFT,
       "Unexpected leftover rows from previous left batch when join type is not left join");
 
-    // No need to worry about output batch overflow since leftover left rows are already part of 1 left incoming batch
-    if (leftJoinIndex < left.getRecordCount()) {
-      allocateVectors();
-    }
-
-    while(leftJoinIndex < left.getRecordCount()) {
+    while(leftJoinIndex < left.getRecordCount() && !isOutgoingBatchFull()) {
       emitLeft(leftJoinIndex, outputIndex, 1);
       ++outputIndex;
       ++leftJoinIndex;
     }
 
-    // Reset left indexes and free the memory
-    leftJoinIndex = -1;
-    VectorAccessibleUtilities.clear(left);
+    // Check if there is still pending left rows
+    return leftJoinIndex >= left.getRecordCount();
   }
 
   /**
@@ -153,23 +149,28 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
    */
   @Override
   public IterOutcome innerNext() {
-    // SORABH: Prototype change
+
     if (hasRemainderForLeftJoin) { // if set that means there is spill over from previous left batch and no
       // corresponding right rows and it is left join scenario
-      handleRemainingLeftRows();
-      if (leftUpstream == EMIT) {
+      allocateVectors();
+
+      boolean hasMoreRows = !handleRemainingLeftRows();
+      if (leftUpstream == EMIT || hasMoreRows) {
         logger.debug("Sending current output batch with EMIT outcome since left is received with EMIT and is fully " +
           "consumed now in output batch");
-        hasRemainderForLeftJoin = false;
+        hasRemainderForLeftJoin = hasMoreRows;
         finalizeOutputContainer();
-        return EMIT;
-      } // else just continue processing next batches from left and right
+        return (leftUpstream == EMIT) ? EMIT : OK;
+      } else {
+        // release memory for previous left batch
+        leftJoinIndex = -1;
+        VectorAccessibleUtilities.clear(left);
+      }
     }
 
     // We don't do anything special on FIRST state. Process left batch first and then right batch if need be
     IterOutcome childOutcome = processLeftBatch();
 
-    // SORABH: Prototype change
     if (processLeftBatchInFuture && hasRemainderForLeftJoin) {
       finalizeOutputContainer();
       hasRemainderForLeftJoin = false;
@@ -226,8 +227,6 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
     // allocate space for the outgoing batch
     allocateVectors();
 
-    // SORABH: Prototype change
-    //return produceOutputBatch();
     return produceOutputBatch();
   }
 
@@ -595,15 +594,9 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
       // If it's inner join then just set treat left batch as processed.
       if (!isLeftProcessed && rightUpstream == EMIT && isRightProcessed) {
         if (popConfig.getJoinType() == JoinRelType.LEFT) {
-          while (leftJoinIndex < left.getRecordCount() && !isOutgoingBatchFull()) {
-            emitLeft(leftJoinIndex, outputIndex, 1);
-            ++leftJoinIndex;
-            ++outputIndex;
-          }
-
           // If outgoing batch got full that means we still have some leftJoinIndex to output but right side is done
           // producing the batches. So mark hasRemainderForLeftJoin=true and we will take care of it in future next call.
-          isLeftProcessed = leftJoinIndex >= left.getRecordCount();
+          isLeftProcessed = handleRemainingLeftRows();
           hasRemainderForLeftJoin = !isLeftProcessed;
         } else {
           // not left join hence ignore rows pending in left batch since right side is done producing the output
@@ -774,7 +767,7 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
     return isValid;
   }
 
-  private BatchSchema batchSchemaWithNoExcludedCols(BatchSchema originSchema) {
+  private BatchSchema batchSchemaWithNoExcludedCols(BatchSchema originSchema, boolean isRightBatch) {
     if (excludedFieldNames.size() == 0) {
       return originSchema;
     }
@@ -782,7 +775,10 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
     final SchemaBuilder newSchemaBuilder =
       BatchSchema.newBuilder().setSelectionVectorMode(originSchema.getSelectionVectorMode());
     for (MaterializedField field : originSchema) {
-      if (!excludedFieldNames.contains(field.getName())) {
+      // Don't ignore implicit column from left side in multilevel case where plan is generated such that lower lateral
+      // is on the right side of upper lateral.
+      if (!excludedFieldNames.contains(field.getName()) ||
+        (field.getName().equals(IMPLICIT_COLUMN) && !isRightBatch)) {
         newSchemaBuilder.addField(field);
       }
     }
@@ -800,8 +796,8 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
 
     // Clear up the container
     container.clear();
-    leftSchema = batchSchemaWithNoExcludedCols(left.getSchema());
-    rightSchema = batchSchemaWithNoExcludedCols(right.getSchema());
+    leftSchema = batchSchemaWithNoExcludedCols(left.getSchema(), false);
+    rightSchema = batchSchemaWithNoExcludedCols(right.getSchema(), true);
 
     if (!verifyInputSchema(leftSchema)) {
       throw new SchemaChangeException("Invalid Schema found for left incoming batch");
@@ -811,10 +807,11 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
       throw new SchemaChangeException("Invalid Schema found for right incoming batch");
     }
 
-    // Setup LeftSchema in outgoing container
+    // Setup LeftSchema in outgoing container and also include implicit column if present in left side for multilevel
+    // case if plan is generated such that lower lateral is right child of upper lateral
     for (final VectorWrapper<?> vectorWrapper : left) {
       final MaterializedField leftField = vectorWrapper.getField();
-      if (excludedFieldNames.contains(leftField.getName())) {
+      if (excludedFieldNames.contains(leftField.getName()) && !(leftField.getName().equals(IMPLICIT_COLUMN))) {
         continue;
       }
       container.addOrGet(leftField);
@@ -830,8 +827,6 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
         continue;
       }
 
-      Preconditions.checkState(IMPLICIT_VECTOR != null,
-        "Implicit column vector %s not found in right incoming batch", IMPLICIT_COLUMN);
       TypeProtos.MajorType rightFieldType = vectorWrapper.getField().getType();
 
       // make right input schema optional if we have LEFT join
@@ -847,6 +842,9 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
       container.addOrGet(rightField);
     }
 
+    Preconditions.checkState(IMPLICIT_VECTOR != null,
+      "Implicit column vector %s not found in right incoming batch", IMPLICIT_COLUMN);
+
     // Let's build schema for the container
     outputIndex = 0;
     container.setRecordCount(outputIndex);
@@ -859,7 +857,6 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
    * Simple method to allocate space for all the vectors in the container.
    */
   private void allocateVectors() {
-    // SORABH: Prototype change
     if (outputIndex > 0) {
       logger.trace("Allocation is already done for output container vectors since it already holds some record");
       return;
@@ -1004,13 +1001,13 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
    * @param endVectorIndex - end index of vector inside source record batch
    * @param baseVectorIndex - base index to be added to startVectorIndex to get corresponding vector in outgoing batch
    * @param numRowsToCopy - Number of rows to copy into output batch
-   * @param moveFromIndex - boolean to indicate if the fromIndex should also be increased or not. Since in case of
+   * @param isRightBatch - boolean to indicate if the fromIndex should also be increased or not. Since in case of
    *                      copying data from left vector fromIndex is constant whereas in case of copying data from right
    *                      vector fromIndex will move along with output index.
    */
   private void copyDataToOutputVectors(int fromRowIndex, int toRowIndex, RecordBatch batch,
                                        int startVectorIndex, int endVectorIndex, int baseVectorIndex,
-                                       int numRowsToCopy, boolean moveFromIndex) {
+                                       int numRowsToCopy, boolean isRightBatch) {
     // Get the vectors using field index rather than Materialized field since input batch field can be different from
     // output container field in case of Left Join. As we rebuild the right Schema field to be optional for output
     // container.
@@ -1030,6 +1027,13 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
         inputValueClass = batch.getSchema().getColumn(inputIndex).getValueClass();
         inputVector = batch.getValueAccessorById(inputValueClass, inputIndex).getValueVector();
         inputFieldName = inputVector.getField().getName();
+
+        // If implicit column is in left batch then preserve it
+        if (inputFieldName.equals(IMPLICIT_COLUMN) && !isRightBatch) {
+          ++inputIndex;
+          break;
+        }
+
         ++inputIndex;
       } while (excludedFieldNames.contains(inputFieldName));
 
@@ -1044,7 +1048,7 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
 
       // Copy data from input vector to output vector for numRowsToCopy times.
       for (int j = 0; j < numRowsToCopy; ++j) {
-        outputVector.copyEntry(toRowIndex + j, inputVector, (moveFromIndex) ? fromRowIndex + j : fromRowIndex);
+        outputVector.copyEntry(toRowIndex + j, inputVector, (isRightBatch) ? fromRowIndex + j : fromRowIndex);
       }
     }
   }
