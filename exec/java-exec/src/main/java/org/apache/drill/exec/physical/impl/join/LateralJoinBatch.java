@@ -101,6 +101,11 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
 
   private ValueVector IMPLICIT_VECTOR;
 
+  // Map to cache reference of input and corresponding output vectors for left and right batches
+  private final Map<ValueVector, ValueVector> leftInputOutputVector = new HashMap<>();
+
+  private final Map<ValueVector, ValueVector> rightInputOutputVector = new HashMap<>();
+
   /* ****************************************************************************************************************
    * Public Methods
    * ****************************************************************************************************************/
@@ -285,7 +290,7 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
   @Override
   public int getRecordIndex() {
     Preconditions.checkState (leftJoinIndex < left.getRecordCount(),
-      String.format("Left join index: %d is out of bounds: %d", leftJoinIndex, left.getRecordCount()));
+      "Left join index: %s is out of bounds: %s", leftJoinIndex, left.getRecordCount());
     return leftJoinIndex;
   }
 
@@ -378,8 +383,7 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
   private boolean handleSchemaChange() {
     try {
       stats.startSetup();
-      logger.debug(String.format("Setting up new schema based on incoming batch. Old output schema: %s",
-        container.getSchema()));
+      logger.debug("Setting up new schema based on incoming batch. Old output schema: %s", container.getSchema());
       setupNewSchema();
       return true;
     } catch (SchemaChangeException ex) {
@@ -791,11 +795,14 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
    */
   private void setupNewSchema() throws SchemaChangeException {
 
-    logger.debug(String.format("Setting up new schema based on incoming batch. New left schema: %s" +
-        " and New right schema: %s", left.getSchema(), right.getSchema()));
+    logger.debug("Setting up new schema based on incoming batch. New left schema: %s and New right schema: %s",
+      left.getSchema(), right.getSchema());
 
     // Clear up the container
     container.clear();
+    leftInputOutputVector.clear();
+    rightInputOutputVector.clear();
+
     leftSchema = batchSchemaWithNoExcludedCols(left.getSchema(), false);
     rightSchema = batchSchemaWithNoExcludedCols(right.getSchema(), true);
 
@@ -849,6 +856,14 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
     outputIndex = 0;
     container.setRecordCount(outputIndex);
     container.buildSchema(BatchSchema.SelectionVectorMode.NONE);
+
+    // Setup left vectors
+    setupInputOutputVectors(left, 0, leftSchema.getFieldCount(), 0, false);
+
+    // Setup right vectors
+    setupInputOutputVectors(right, 0, rightSchema.getFieldCount(),
+      leftSchema.getFieldCount(), true);
+
     logger.debug("Output Schema created {} based on input left schema {} and right schema {}", container.getSchema(),
       leftSchema, rightSchema);
   }
@@ -942,7 +957,7 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
 
     // Assuming that first vector in right batch is for IMPLICIT_COLUMN.
     // get a mapping of number of rows for each rowId present in current right side batch
-    final Map<Integer, Integer> indexToFreq = getRowIdToRowCountMapping();
+    //final Map<Integer, Integer> indexToFreq = getRowIdToRowCountMapping();
     final IntVector rowIdVector = (IntVector) IMPLICIT_VECTOR;
 
     // we need to have both conditions because in left join case we can exceed the maxAvailableRowSlot before reaching
@@ -958,7 +973,8 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
       if (leftRowId == currentRowId) {
         // there is a match
         matchedRecordFound = true;
-        numRowsCopied = Math.min(indexToFreq.get(currentRowId), maxAvailableRowSlot);
+        numRowsCopied = 1;
+        //numRowsCopied = Math.min(indexToFreq.get(currentRowId), maxAvailableRowSlot);
         emitRight(rightJoinIndex, outputIndex, numRowsCopied);
         emitLeft(leftJoinIndex, outputIndex, numRowsCopied);
         outputIndex += numRowsCopied;
@@ -990,28 +1006,26 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
   }
 
   /**
-   * Given a record batch, copies data from all it's vectors at fromRowIndex to all the vectors in output batch at
-   * toRowIndex. It iterates over all the vectors from startVectorIndex to endVectorIndex inside the record batch to
-   * copy the data and copies it inside vectors from startVectorIndex + baseVectorIndex to endVectorIndex +
-   * baseVectorIndex.
-   * @param fromRowIndex - row index of all the vectors in batch to copy data from
-   * @param toRowIndex - row index of all the vectors in outgoing batch to copy data to
-   * @param batch - source record batch holding vectors with data
-   * @param startVectorIndex - start index of vector inside source record batch
-   * @param endVectorIndex - end index of vector inside source record batch
-   * @param baseVectorIndex - base index to be added to startVectorIndex to get corresponding vector in outgoing batch
-   * @param numRowsToCopy - Number of rows to copy into output batch
-   * @param isRightBatch - boolean to indicate if the fromIndex should also be increased or not. Since in case of
-   *                      copying data from left vector fromIndex is constant whereas in case of copying data from right
-   *                      vector fromIndex will move along with output index.
+   * Get's references of vector's from input and output vector container and create the mapping between them in
+   * respective maps. Example: for right incoming batch the references of input vector to corresponding output
+   * vector will be stored in {@link LateralJoinBatch#rightInputOutputVector}. This is done here such that during
+   * copy we don't have to figure out this mapping everytime for each input and output vector and then do actual copy.
+   * There was overhead seen with functions {@link MaterializedField#getValueClass()} and
+   * {@link RecordBatch#getValueAccessorById(Class, int...)} since it will be called for each row copy.
+   * @param batch - Incoming RecordBatch
+   * @param startVectorIndex - StartIndex of output vector container
+   * @param endVectorIndex - endIndex of output vector container
+   * @param baseVectorIndex - delta to add in startIndex for getting vectors in output container
+   * @param isRightBatch - is batch passed left or right child
    */
-  private void copyDataToOutputVectors(int fromRowIndex, int toRowIndex, RecordBatch batch,
-                                       int startVectorIndex, int endVectorIndex, int baseVectorIndex,
-                                       int numRowsToCopy, boolean isRightBatch) {
+  private void setupInputOutputVectors(RecordBatch batch, int startVectorIndex, int endVectorIndex,
+                                       int baseVectorIndex, boolean isRightBatch) {
     // Get the vectors using field index rather than Materialized field since input batch field can be different from
     // output container field in case of Left Join. As we rebuild the right Schema field to be optional for output
     // container.
     int inputIndex = 0;
+    final Map<ValueVector, ValueVector> mappingToUse = (isRightBatch) ? rightInputOutputVector : leftInputOutputVector;
+
     for (int i = startVectorIndex; i < endVectorIndex; ++i) {
       // Get output vector
       final int outputVectorIndex = i + baseVectorIndex;
@@ -1037,18 +1051,37 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
         ++inputIndex;
       } while (excludedFieldNames.contains(inputFieldName));
 
-      Preconditions.checkArgument(outputFieldName.equals(inputFieldName),
-        new IllegalStateException(String.format("Non-excluded Input and output container fields are not in same order" +
-          ". Output Schema:%s and Input Schema:%s", this.getSchema(), batch.getSchema())));
+      Preconditions.checkState(outputFieldName.equals(inputFieldName),
+        "Non-excluded Input and output container fields are not in same order. " +
+          "[Output Schema: %s and Input Schema:%s]", this.getSchema(), batch.getSchema());
 
+      mappingToUse.put(inputVector, outputVector);
+    }
+  }
+
+  /**
+   * Given a vector reference mapping between source and destination vector, copies data from all the source vectors
+   * at fromRowIndex to all the destination vectors in output batch at toRowIndex.
+   *
+   * @param fromRowIndex - row index of all the vectors in batch to copy data from
+   * @param toRowIndex - row index of all the vectors in outgoing batch to copy data to
+   * @param mapping - source record batch holding vectors with data
+   * @param numRowsToCopy - Number of rows to copy into output batch
+   * @param isRightBatch - boolean to indicate if the fromIndex should also be increased or not. Since in case of
+   *                      copying data from left vector fromIndex is constant whereas in case of copying data from right
+   *                      vector fromIndex will move along with output index.
+   */
+  private void copyDataToOutputVectors(int fromRowIndex, int toRowIndex, Map<ValueVector, ValueVector> mapping,
+                                       int numRowsToCopy, boolean isRightBatch) {
+    for (Map.Entry<ValueVector, ValueVector> entry : mapping.entrySet()) {
       logger.trace("Copying data from incoming batch vector to outgoing batch vector. [IncomingBatch: " +
-          "(RowIndex: {}, VectorType: {}), OutputBatch: (RowIndex: {}, VectorType: {}) and Other: (TimeEachValue: {}," +
-          " NumBaseIndex: {}) ]",
-        fromRowIndex, inputValueClass, toRowIndex, outputValueClass, numRowsToCopy, baseVectorIndex);
+          "(RowIndex: {}, ColumnName: {}), OutputBatch: (RowIndex: {}, ColumnName: {}) and Other: (TimeEachValue: {})]",
+        fromRowIndex, entry.getKey().getField().getName(), toRowIndex, entry.getValue().getField().getName(),
+        numRowsToCopy);
 
       // Copy data from input vector to output vector for numRowsToCopy times.
       for (int j = 0; j < numRowsToCopy; ++j) {
-        outputVector.copyEntry(toRowIndex + j, inputVector, (isRightBatch) ? fromRowIndex + j : fromRowIndex);
+        entry.getValue().copyEntry(toRowIndex + j, entry.getKey(), (isRightBatch) ? fromRowIndex + j : fromRowIndex);
       }
     }
   }
@@ -1058,10 +1091,10 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
    * outgoing record batch
    * @param leftIndex - index to copy data from left incoming batch vectors
    * @param outIndex - index to copy data to in outgoing batch vectors
+   * @param numRowsToCopy - number of rows to copy from source vector to destination vectors
    */
   private void emitLeft(int leftIndex, int outIndex, int numRowsToCopy) {
-    copyDataToOutputVectors(leftIndex, outIndex, left, 0,
-      leftSchema.getFieldCount(), 0, numRowsToCopy, false);
+    copyDataToOutputVectors(leftIndex, outIndex, leftInputOutputVector, numRowsToCopy, false);
   }
 
   /**
@@ -1069,10 +1102,10 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
    * outgoing record batch
    * @param rightIndex - index to copy data from right incoming batch vectors
    * @param outIndex - index to copy data to in outgoing batch vectors
+   * @param numRowsToCopy - number of rows to copy from source vector to destination vectors
    */
   private void emitRight(int rightIndex, int outIndex, int numRowsToCopy) {
-    copyDataToOutputVectors(rightIndex, outIndex, right, 0,
-      rightSchema.getFieldCount(), leftSchema.getFieldCount(), numRowsToCopy, true);
+    copyDataToOutputVectors(rightIndex, outIndex, rightInputOutputVector, numRowsToCopy, true);
   }
 
   /**
@@ -1099,7 +1132,6 @@ public class LateralJoinBatch extends AbstractBinaryRecordBatch<LateralJoinPOP> 
   }
 
   private void updateMemoryManager(int inputIndex) {
-
     if (inputIndex == LEFT_INDEX && isNewLeftBatch) {
       // reset state and continue to update
       isNewLeftBatch = false;
