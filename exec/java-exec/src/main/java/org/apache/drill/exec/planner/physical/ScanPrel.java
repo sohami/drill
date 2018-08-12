@@ -156,7 +156,7 @@ public class ScanPrel extends AbstractRelNode implements DrillScanPrel {
 
   @Override
   public SelectionVectorMode getEncoding() {
-    return SelectionVectorMode.TWO_BYTE;
+    return SelectionVectorMode.NONE;
   }
 
   @Override

@@ -45,7 +45,7 @@ public class TestHashJoinJPPDPlan extends JoinTestBase {
       + "group by nations.N_NAME";
     String expectedColNames1 =  "\"runtimeFilterDef\"";
     String expectedColNames2 =  "\"bloomFilterDefs\"";
-    String expectedColNames3 =  "\"probeField\" : \"R_REGIONKEY\"" ;
+    String expectedColNames3 =  "\"runtime-filter\"" ;
     testPhysicalPlan(sql, expectedColNames1, expectedColNames2, expectedColNames3);
   }
 
@@ -61,7 +61,7 @@ public class TestHashJoinJPPDPlan extends JoinTestBase {
       + "group by nations.N_NAME";
     String expectedColNames1 =  "\"runtimeFilterDef\"";
     String expectedColNames2 =  "\"bloomFilterDefs\"";
-    String expectedColNames3 =  "\"probeField\" : \"R_REGIONKEY\"" ;
+    String expectedColNames3 =  "\"runtime-filter\"" ;
     testPhysicalPlan(sql, expectedColNames1, expectedColNames2, expectedColNames3);
   }
 
@@ -76,7 +76,7 @@ public class TestHashJoinJPPDPlan extends JoinTestBase {
       + "group by nations.N_NAME";
     String excludedColNames1 =  "\"runtimeFilterDef\"";
     String excludedColNames2 =  "\"bloomFilterDefs\"";
-    String excludedColNames3 =  "\"probeField\" : \"R_REGIONKEY\"" ;
+    String excludedColNames3 =  "\"runtime-filter\"" ;
     testPlanWithAttributesMatchingPatterns(sql, null, new String[]{excludedColNames1, excludedColNames2, excludedColNames3});
   }
 
@@ -92,7 +92,7 @@ public class TestHashJoinJPPDPlan extends JoinTestBase {
       + "group by nations.N_NAME";
     String excludedColNames1 =  "\"runtimeFilterDef\"";
     String excludedColNames2 =  "\"bloomFilterDefs\"";
-    String excludedColNames3 =  "\"probeField\" : \"R_REGIONKEY\"" ;
+    String excludedColNames3 =  "\"runtime-filter\"" ;
     testPlanWithAttributesMatchingPatterns(sql, null, new String[]{excludedColNames1, excludedColNames2, excludedColNames3});
   }
 
@@ -110,7 +110,7 @@ public class TestHashJoinJPPDPlan extends JoinTestBase {
       + "group by nations.N_NAME";
     String expectedColNames1 =  "\"runtimeFilterDef\"";
     String expectedColNames2 =  "\"bloomFilterDefs\"";
-    String expectedColNames3 =  "\"probeField\" : \"R_REGIONKEY\"" ;
+    String expectedColNames3 =  "\"runtime-filter\"" ;
     testPhysicalPlan(sql, expectedColNames1, expectedColNames2, expectedColNames3);
   }
 

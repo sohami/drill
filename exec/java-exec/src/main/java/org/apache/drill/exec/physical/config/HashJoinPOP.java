@@ -54,7 +54,7 @@ public class HashJoinPOP extends AbstractJoinPop {
   }
 
   @VisibleForTesting
-  public HashJoinPOP( PhysicalOperator left, PhysicalOperator right,
+  public HashJoinPOP(PhysicalOperator left, PhysicalOperator right,
                      List<JoinCondition> conditions,
                      JoinRelType joinType) {
     super(left, right, joinType, null, conditions);

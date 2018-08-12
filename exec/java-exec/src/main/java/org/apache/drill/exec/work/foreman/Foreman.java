@@ -410,7 +410,7 @@ public class Foreman implements Runnable {
     final QueryWorkUnit work = getQueryWorkUnit(plan);
     if (enableRuntimeFilter) {
       runtimeFilterManager = new RuntimeFilterManager(work, drillbitContext);
-      runtimeFilterManager.collectRuntimeFilterParallelAndControlInfo(textPlan);
+      runtimeFilterManager.collectRuntimeFilterParallelAndControlInfo();
     }
     if (textPlan != null) {
       queryManager.setPlanText(textPlan.value);
@@ -424,9 +424,6 @@ public class Foreman implements Runnable {
     fragmentsRunner.setFragmentsInfo(work.getFragments(), work.getRootFragment(), work.getRootOperator());
 
     startQueryProcessing();
-    if (enableRuntimeFilter) {
-      runtimeFilterManager.waitForComplete();
-    }
   }
 
   /**
@@ -736,7 +733,9 @@ public class Foreman implements Runnable {
 
       logger.debug(queryIdString + ": cleaning up.");
       injector.injectPause(queryContext.getExecutionControls(), "foreman-cleanup", logger);
-
+      if (enableRuntimeFilter) {
+        runtimeFilterManager.waitForComplete();
+      }
       // remove the channel disconnected listener (doesn't throw)
       closeFuture.removeListener(closeListener);
 

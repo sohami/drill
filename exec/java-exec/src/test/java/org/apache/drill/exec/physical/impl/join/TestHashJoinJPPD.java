@@ -45,7 +45,7 @@ public class TestHashJoinJPPD extends PhysicalOpUnitTestBase {
       .logger("org.apache.drill", Level.WARN);
     List<BloomFilterDef> bloomFilterDefs = new ArrayList<>();
     int numBytes = BloomFilter.optimalNumOfBytes(2600, 0.01);
-    BloomFilterDef bloomFilterDef = new BloomFilterDef(0, numBytes, true, "lft");
+    BloomFilterDef bloomFilterDef = new BloomFilterDef(numBytes, true, "lft");
     bloomFilterDefs.add(bloomFilterDef);
     RuntimeFilterDef runtimeFilterDef = new RuntimeFilterDef(true, false, bloomFilterDefs, false );
     HashJoinPOP joinConf = new HashJoinPOP(null, null,
@@ -80,8 +80,8 @@ public class TestHashJoinJPPD extends PhysicalOpUnitTestBase {
       .logger("org.apache.drill", Level.WARN);
     List<BloomFilterDef> bloomFilterDefs = new ArrayList<>();
     int numBytes = BloomFilter.optimalNumOfBytes(2600, 0.01);
-    BloomFilterDef bloomFilterDef = new BloomFilterDef(0, numBytes, true, "lft");
-    BloomFilterDef bloomFilterDef1 = new BloomFilterDef(0, numBytes, true, "a");
+    BloomFilterDef bloomFilterDef = new BloomFilterDef(numBytes, true, "lft");
+    BloomFilterDef bloomFilterDef1 = new BloomFilterDef(numBytes, true, "a");
     bloomFilterDefs.add(bloomFilterDef);
     bloomFilterDefs.add(bloomFilterDef1);
     RuntimeFilterDef runtimeFilterDef = new RuntimeFilterDef(true, false, bloomFilterDefs, false );

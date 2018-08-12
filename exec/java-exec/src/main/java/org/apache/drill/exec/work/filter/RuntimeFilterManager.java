@@ -18,39 +18,18 @@
 package org.apache.drill.exec.work.filter;
 
 import com.google.common.base.Preconditions;
-import org.apache.calcite.plan.volcano.RelSubset;
-import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.core.JoinInfo;
-import org.apache.calcite.rel.core.JoinRelType;
-import org.apache.calcite.rel.metadata.RelMetadataQuery;
-import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.rel.type.RelDataTypeField;
-import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.ops.AccountingDataTunnel;
 import org.apache.drill.exec.ops.Consumer;
-import org.apache.drill.exec.ops.QueryContext;
 import org.apache.drill.exec.ops.SendingAccountor;
 import org.apache.drill.exec.ops.StatusHandler;
-import org.apache.drill.exec.physical.PhysicalPlan;
-
 import org.apache.drill.exec.physical.base.AbstractPhysicalVisitor;
 import org.apache.drill.exec.physical.base.Exchange;
 import org.apache.drill.exec.physical.base.GroupScan;
 import org.apache.drill.exec.physical.base.PhysicalOperator;
-import org.apache.drill.exec.physical.config.BroadcastExchange;
 import org.apache.drill.exec.physical.config.HashJoinPOP;
 import org.apache.drill.exec.planner.fragment.Fragment;
 import org.apache.drill.exec.planner.fragment.Wrapper;
-import org.apache.drill.exec.planner.physical.HashAggPrel;
-import org.apache.drill.exec.planner.physical.HashJoinPrel;
-import org.apache.drill.exec.planner.physical.Prel;
-import org.apache.drill.exec.planner.physical.ScanPrel;
-import org.apache.drill.exec.planner.physical.SortPrel;
-import org.apache.drill.exec.planner.physical.StreamAggPrel;
-import org.apache.drill.exec.planner.physical.TopNPrel;
-import org.apache.drill.exec.planner.physical.visitor.BasePrelVisitor;
 import org.apache.drill.exec.proto.BitData;
 import org.apache.drill.exec.proto.CoordinationProtos;
 import org.apache.drill.exec.proto.GeneralRPCProtos;
@@ -60,7 +39,6 @@ import org.apache.drill.exec.rpc.RpcException;
 import org.apache.drill.exec.rpc.RpcOutcomeListener;
 import org.apache.drill.exec.rpc.data.DataTunnel;
 import org.apache.drill.exec.server.DrillbitContext;
-import org.apache.drill.exec.util.Pointer;
 import org.apache.drill.exec.work.QueryWorkUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,16 +47,25 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * This class traverses the physical operator tree to find the HashJoin operator
- * for which is JPPD (join predicate push down) is possible. The prerequisite to do JPPD
- * is:
- * 1. The join condition is equality
- * 2. The physical join node is a HashJoin one
- * 3. The probe side children of the HashJoin node should not contain a blocking operator like HashAgg
+ * This class manages the RuntimeFilter routing information of the pushed down join predicate
+ * of the partitioned exchange HashJoin.
+ *
+ * The working flow of the RuntimeFilter has two kinds: Broadcast case and Partitioned case.
+ * The HashJoinRecordBatch is responsible to generate the RuntimeFilter.
+ * To Partitioned case:
+ * The generated RuntimeFilter will be sent to the Foreman node. The Foreman node receives the RuntimeFilter
+ * async, aggregates them, broadcasts them the Scan nodes's MinorFragment. The RuntimeFilterRecordBatch which
+ * steps over the Scan node will leverage the received RuntimeFilter to filter out the scanned rows to generate
+ * the SV2.
+ * To Broadcast case:
+ * The generated RuntimeFilter will be sent to Scan node's RuntimeFilterRecordBatch directly. The working of the
+ * RuntimeFilterRecordBath is the same as the Partitioned one.
+ *
+ *
+ *
  */
 public class RuntimeFilterManager {
 
@@ -96,8 +83,6 @@ public class RuntimeFilterManager {
 
   private SendingAccountor sendingAccountor = new SendingAccountor();
 
-  private String lineSeparator;
-
   private static final Logger logger = LoggerFactory.getLogger(RuntimeFilterManager.class);
 
   /**
@@ -110,85 +95,13 @@ public class RuntimeFilterManager {
   public RuntimeFilterManager(QueryWorkUnit workUnit, DrillbitContext drillbitContext) {
     this.rootWrapper = workUnit.getRootWrapper();
     this.drillbitContext = drillbitContext;
-    lineSeparator = System.lineSeparator();
-  }
-
-
-  /**
-   * Step 1 :
-   * Generate a possible RuntimeFilter of a HashJoinPrel, left some BF parameters of the generated RuntimeFilter
-   * to be set later.
-   * @param hashJoinPrel
-   * @return null or a partial information RuntimeFilterDef
-   */
-  public static RuntimeFilterDef generateRuntimeFilter(HashJoinPrel hashJoinPrel) {
-    JoinRelType joinRelType = hashJoinPrel.getJoinType();
-    JoinInfo joinInfo = hashJoinPrel.analyzeCondition();
-    boolean allowJoin = (joinInfo.isEqui()) && (joinRelType == JoinRelType.INNER || joinRelType == JoinRelType.RIGHT);
-    if (!allowJoin) {
-      return null;
-    }
-    List<BloomFilterDef> bloomFilterDefs = new ArrayList<>();
-    //find the possible left scan node of the left join key
-    GroupScan groupScan = null;
-    RelNode left = hashJoinPrel.getLeft();
-    List<String> leftFields = left.getRowType().getFieldNames();
-    List<Integer> leftKeys = hashJoinPrel.getLeftKeys();
-    RelMetadataQuery metadataQuery = left.getCluster().getMetadataQuery();
-    for (Integer leftKey : leftKeys) {
-      String leftFieldName = leftFields.get(leftKey);
-      //This also avoids the left field of the join condition with a function call.
-      ScanPrel scanPrel = findLeftScanPrel(leftFieldName, left);
-      if (scanPrel != null) {
-        boolean encounteredBlockNode = containBlockNode((Prel) left, scanPrel);
-        if (encounteredBlockNode) {
-          continue;
-        }
-        //Collect NDV from the Metadata
-        RelDataType scanRowType = scanPrel.getRowType();
-        RelDataTypeField field = scanRowType.getField(leftFieldName, true, true);
-        int index = field.getIndex();
-        Double ndv = metadataQuery.getDistinctRowCount(scanPrel, ImmutableBitSet.of(index), null);
-        if (ndv == null) {
-          //If NDV is not supplied, we use the row count to estimate the ndv.
-          ndv = left.estimateRowCount(metadataQuery) * 0.1;
-        }
-        //only the probe side field name and hash seed is definite, other information left to pad later
-        BloomFilterDef bloomFilterDef = new BloomFilterDef(0, 0,false, leftFieldName);
-        bloomFilterDef.setLeftNDV(ndv);
-        bloomFilterDefs.add(bloomFilterDef);
-        groupScan = scanPrel.getGroupScan();
-      }
-    }
-    if (bloomFilterDefs.size() > 0) {
-      //only bloom filters parameter & probe side GroupScan is definitely set here
-      RuntimeFilterDef runtimeFilterDef = new RuntimeFilterDef(true, false, bloomFilterDefs, false);
-      runtimeFilterDef.setProbeSideGroupScan(groupScan);
-      return  runtimeFilterDef;
-    }
-    return null;
   }
 
   /**
-   * Step 2:
-   * Complement the RuntimeFilter information
-   * @param plan
-   * @param queryContext
-   */
-  public static void complementRuntimeFilterInfo(PhysicalPlan plan, QueryContext queryContext) {
-    final PhysicalOperator rootOperator = plan.getSortedOperators(false).iterator().next();
-    RuntimeFilterInfoPaddingHelper runtimeFilterInfoPaddingHelper = new RuntimeFilterInfoPaddingHelper(queryContext);
-    rootOperator.accept(runtimeFilterInfoPaddingHelper, null);
-  }
-
-
-  /**
-   * Step3 :
-   * This method is to collect the parallel information of the RuntimetimeFilters. Then it res a RuntimeFilterRouting to
+   * This method is to collect the parallel information of the RuntimetimeFilters. Then it generates a RuntimeFilter routing map to
    * record the relationship between the RuntimeFilter producers and consumers.
    */
-  public void collectRuntimeFilterParallelAndControlInfo(Pointer<String> textPlan) {
-    Map<String, String> mjOpIdPair2runtimeFilter = new HashMap<>();
+  public void collectRuntimeFilterParallelAndControlInfo() {
     RuntimeFilterParallelismCollector runtimeFilterParallelismCollector = new RuntimeFilterParallelismCollector();
     rootWrapper.getNode().getRoot().accept(runtimeFilterParallelismCollector, null);
     List<RFHelperHolder> holders = runtimeFilterParallelismCollector.getHolders();
@@ -199,18 +112,6 @@ public class RuntimeFilterManager {
       int joinNodeMajorId = holder.getJoinMajorId();
       RuntimeFilterDef runtimeFilterDef = holder.getRuntimeFilterDef();
       boolean sendToForeman = runtimeFilterDef.isSendToForeman();
-      //mark the runtime filter info to the profile
-      int probeSideScanOpId = holder.getProbeSideScanOpId();
-      List<BloomFilterDef> bloomFilterDefs = runtimeFilterDef.getBloomFilterDefs();
-      String mjOpIdPair = String.format("%02d-%02d", probeSideScanMajorId, probeSideScanOpId);
-      StringBuilder stringBuilder = new StringBuilder();
-      stringBuilder.append("RuntimeFilter[");
-      for (BloomFilterDef bloomFilterDef : bloomFilterDefs) {
-        stringBuilder.append(bloomFilterDef.toString()).append(",");
-      }
-      stringBuilder.append("]");
-      String runtimeFiltersJson = stringBuilder.toString();
-      mjOpIdPair2runtimeFilter.put(mjOpIdPair, runtimeFiltersJson);
       if (sendToForeman) {
         //send RuntimeFilter to Foreman
         joinMjId2probdeScanEps.put(joinNodeMajorId, probeSideEndpoints);
@@ -218,7 +119,6 @@ public class RuntimeFilterManager {
         joinMjId2ScanMjId.put(joinNodeMajorId, probeSideScanMajorId);
       }
     }
-    reconstructTextPlan(textPlan, mjOpIdPair2runtimeFilter);
   }
 
 
@@ -255,59 +155,6 @@ public class RuntimeFilterManager {
     }
   }
 
-  /**
-   * Find a join condition's left input source scan Prel. If we can't find a target scan Prel then this
-   * RuntimeFilter can not pushed down to a probe side scan Prel.
-   * @param fieldName left join condition field Name
-   * @param leftRelNode left RelNode of a BiRel or the SingleRel
-   * @return a left scan Prel which contains the left join condition name or null
-   */
-  private static ScanPrel findLeftScanPrel(String fieldName, RelNode leftRelNode) {
-    if (leftRelNode instanceof ScanPrel) {
-      RelDataType scanRowType = leftRelNode.getRowType();
-      RelDataTypeField field = scanRowType.getField(fieldName, true, true);
-      if (field != null) {
-        //found
-        return (ScanPrel)leftRelNode;
-      } else {
-        return null;
-      }
-    } else if (leftRelNode instanceof RelSubset) {
-      RelNode bestNode = ((RelSubset) leftRelNode).getBest();
-      if (bestNode != null) {
-        return findLeftScanPrel(fieldName, bestNode);
-      } else {
-        return null;
-      }
-    } else {
-      List<RelNode> relNodes = leftRelNode.getInputs();
-      RelNode leftNode = relNodes.get(0);
-      return findLeftScanPrel(fieldName, leftNode);
-    }
-  }
-
-  private static boolean containBlockNode(Prel startNode, Prel endNode) {
-    BlockNodeVisitor blockNodeVisitor = new BlockNodeVisitor();
-    startNode.accept(blockNodeVisitor, endNode);
-    return blockNodeVisitor.isEncounteredBlockNode();
-  }
-
-  private void reconstructTextPlan(Pointer<String> textPlan, Map<String, String> mjOpIdPair2runtimeFilter) {
-    if (textPlan != null && textPlan.value != null && !mjOpIdPair2runtimeFilter.isEmpty()) {
-      String[] lines = textPlan.value.split(lineSeparator);
-      Set<String> idPairs = mjOpIdPair2runtimeFilter.keySet();
-      StringBuilder stringBuilder = new StringBuilder();
-      for (String line : lines) {
-        for (String idPair : idPairs) {
-          if (line.startsWith(idPair)) {
-            line = line + " : " + mjOpIdPair2runtimeFilter.get(idPair);
-          }
-        }
-        stringBuilder.append(line).append(lineSeparator);
-      }
-      textPlan.value = stringBuilder.toString();
-    }
-  }
 
   private void broadcastAggregatedRuntimeFilter(int joinMajorId, UserBitShared.QueryId queryId, List<String> probeFields) {
     List<CoordinationProtos.DrillbitEndpoint> scanNodeEps = joinMjId2probdeScanEps.get(joinMajorId);
@@ -330,108 +177,17 @@ public class RuntimeFilterManager {
       Consumer<RpcException> exceptionConsumer = new Consumer<RpcException>() {
         @Override
         public void accept(final RpcException e) {
-          //logger.error("fail to broadcast a runtime filter to the probe side scan node", e);
+          logger.warn("fail to broadcast a runtime filter to the probe side scan node", e);
         }
 
         @Override
         public void interrupt(final InterruptedException e) {
-          //logger.error("fail to broadcast a runtime filter to the probe side scan node", e);
+          logger.warn("fail to broadcast a runtime filter to the probe side scan node", e);
         }
       };
       RpcOutcomeListener<GeneralRPCProtos.Ack> statusHandler = new StatusHandler(exceptionConsumer, sendingAccountor);
       AccountingDataTunnel accountingDataTunnel = new AccountingDataTunnel(dataTunnel, sendingAccountor, statusHandler);
       accountingDataTunnel.sendRuntimeFilter(runtimeFilterWritable);
-    }
-  }
-
-
-  /**
-   * Find all the previous defined runtime filters to complement their information.
-   */
-  private static class RuntimeFilterInfoPaddingHelper extends AbstractPhysicalVisitor<Void, RFHelperHolder, RuntimeException> {
-
-    private boolean enableRuntimeFilter;
-
-    private int bloomFilterSizeInBytesDef;
-
-    private double fpp;
-
-    public RuntimeFilterInfoPaddingHelper(QueryContext queryContext) {
-      this.enableRuntimeFilter = queryContext.getOption(ExecConstants.HASHJOIN_ENABLE_RUNTIME_FILTER_KEY).bool_val;
-      this.bloomFilterSizeInBytesDef = queryContext.getOption(ExecConstants.HASHJOIN_BLOOM_FILTER_DEFAULT_SIZE_KEY).int_val;
-      this.fpp = queryContext.getOption(ExecConstants.HASHJOIN_BLOOM_FILTER_FPP_KEY).float_val;
-    }
-
-    @Override
-    public Void visitExchange(Exchange exchange, RFHelperHolder holder) throws RuntimeException {
-      if (holder != null) {
-        boolean broadcastExchange = exchange instanceof BroadcastExchange;
-        if (holder.isFromBuildSide()) {
-          //To the build side ,we need to identify whether the HashJoin's direct children have a Broadcast node to mark
-          //this HashJoin as BroadcastHashJoin
-          holder.setEncounteredBroadcastExchange(broadcastExchange);
-        }
-      }
-      return visitOp(exchange, holder);
-    }
-
-    @Override
-    public Void visitOp(PhysicalOperator op, RFHelperHolder holder) throws RuntimeException {
-      boolean isHashJoinOp = op instanceof HashJoinPOP;
-      if (isHashJoinOp && !enableRuntimeFilter) {
-        HashJoinPOP hashJoinPOP = (HashJoinPOP) op;
-        hashJoinPOP.setRuntimeFilterDef(null);
-      }
-      if (isHashJoinOp && enableRuntimeFilter) {
-        HashJoinPOP hashJoinPOP = (HashJoinPOP) op;
-        RuntimeFilterDef runtimeFilterDef = hashJoinPOP.getRuntimeFilterDef();
-        if (runtimeFilterDef != null) {
-          //TODO check whether to enable RuntimeFilter according to the NDV percent
-          /**
-          double threshold = 0.5;
-          double percent = leftNDV / rightDNV;
-          if (percent > threshold ) {
-            hashJoinPOP.setRuntimeFilterDef(null);
-            return visitChildren(op, holder);
-          }
-           */
-          runtimeFilterDef.setGenerateBloomFilter(true);
-          if (holder == null) {
-            holder = new RFHelperHolder();
-          }
-          GroupScan probeSideScanOp = runtimeFilterDef.getProbeSideGroupScan();
-          org.apache.drill.exec.physical.base.PhysicalOperator left = hashJoinPOP.getLeft();
-          left.accept(this, holder);
-          int probeSideScanOpId = probeSideScanOp.getOperatorId();
-          holder.setProbeSideScanOpId(probeSideScanOpId);
-          //explore the right build side children to find potential RuntimeFilters.
-          PhysicalOperator right = hashJoinPOP.getRight();
-          holder.setFromBuildSide(true);
-          right.accept(this, holder);
-          boolean buildSideEncountererdBroadcastExchange = holder.isEncounteredBroadcastExchange();
-          if (buildSideEncountererdBroadcastExchange) {
-            runtimeFilterDef.setSendToForeman(false);
-          } else {
-            runtimeFilterDef.setSendToForeman(true);
-          }
-          List<BloomFilterDef> bloomFilterDefs = runtimeFilterDef.getBloomFilterDefs();
-          for (BloomFilterDef bloomFilterDef : bloomFilterDefs) {
-            Double leftNDV = bloomFilterDef.getLeftNDV();
-            int bloomFilterSizeInBytes = bloomFilterSizeInBytesDef;
-            if (leftNDV != null && leftNDV != 0.0) {
-              bloomFilterSizeInBytes = BloomFilter.optimalNumOfBytes(leftNDV.longValue(), fpp);
-            }
-            if (buildSideEncountererdBroadcastExchange) {
-              bloomFilterDef.setLocal(true);
-            } else {
-              bloomFilterDef.setLocal(false);
-            }
-            bloomFilterDef.setNumBytes(bloomFilterSizeInBytes);
-          }
-          return null;
-        }
-      }
-      return visitChildren(op, holder);
     }
   }
 
@@ -461,11 +217,9 @@ public class RuntimeFilterManager {
           holder.setJoinMajorId(majorFragmentId);
           Wrapper probeSideScanContainer = findPhysicalOpContainer(container, probeSideScanOp);
           int probeSideScanMjId = probeSideScanContainer.getMajorFragmentId();
-          int probeSideScanOpId = probeSideScanOp.getOperatorId();
           List<CoordinationProtos.DrillbitEndpoint> probeSideScanEps = probeSideScanContainer.getAssignedEndpoints();
           holder.setProbeSideScanEndpoints(probeSideScanEps);
           holder.setProbeSideScanMajorId(probeSideScanMjId);
-          holder.setProbeSideScanOpId(probeSideScanOpId);
         }
       }
       return visitChildren(op, holder);
@@ -541,58 +295,7 @@ public class RuntimeFilterManager {
       }
     }
     //should not be here
-    throw new IllegalStateException("It should not be here!");
-  }
-
-  private static class BlockNodeVisitor extends BasePrelVisitor<Void, Prel, RuntimeException> {
-
-    private boolean encounteredBlockNode;
-
-    @Override
-    public Void visitPrel(Prel prel, Prel endValue) throws RuntimeException {
-      if (prel == endValue) {
-        return null;
-      }
-
-      Prel currentPrel;
-      if (prel instanceof RelSubset) {
-        currentPrel = (Prel) ((RelSubset) prel).getBest();
-      } else {
-        currentPrel = prel;
-      }
-
-      if (currentPrel == null) {
-        return null;
-      }
-      if (currentPrel instanceof StreamAggPrel) {
-        encounteredBlockNode = true;
-        return null;
-      }
-
-      if (currentPrel instanceof HashAggPrel) {
-        encounteredBlockNode = true;
-        return null;
-      }
-
-      if (currentPrel instanceof SortPrel) {
-        encounteredBlockNode = true;
-        return null;
-      }
-
-      if (currentPrel instanceof TopNPrel) {
-        encounteredBlockNode = true;
-        return null;
-      }
-
-      for (Prel subPrel : currentPrel) {
-        visitPrel(subPrel, endValue);
-      }
-      return null;
-    }
-
-    public boolean isEncounteredBlockNode() {
-      return encounteredBlockNode;
-    }
+    throw new IllegalStateException(String.format("No valid Wrapper found for physicalOperator with id=%d", op.getOperatorId()));
   }
 
   /**
@@ -604,15 +307,9 @@ public class RuntimeFilterManager {
 
     private int probeSideScanMajorId;
 
-    private int probeSideScanOpId;
+
 
     private List<CoordinationProtos.DrillbitEndpoint> probeSideScanEndpoints;
-
-    //whether this join operator is a partitioned HashJoin or broadcast HashJoin,
-    //also single node HashJoin is not expected to do JPPD.
-    private boolean encounteredBroadcastExchange;
-
-    private boolean fromBuildSide;
 
     private RuntimeFilterDef runtimeFilterDef;
 
@@ -641,30 +338,6 @@ public class RuntimeFilterManager {
       this.probeSideScanMajorId = probeSideScanMajorId;
     }
 
-
-    public int getProbeSideScanOpId() {
-      return probeSideScanOpId;
-    }
-
-    public void setProbeSideScanOpId(int probeSideScanOpId) {
-      this.probeSideScanOpId = probeSideScanOpId;
-    }
-
-    public boolean isEncounteredBroadcastExchange() {
-      return encounteredBroadcastExchange;
-    }
-
-    public void setEncounteredBroadcastExchange(boolean encounteredBroadcastExchange) {
-      this.encounteredBroadcastExchange = encounteredBroadcastExchange;
-    }
-
-    public boolean isFromBuildSide() {
-      return fromBuildSide;
-    }
-
-    public void setFromBuildSide(boolean fromBuildSide) {
-      this.fromBuildSide = fromBuildSide;
-    }
 
     public RuntimeFilterDef getRuntimeFilterDef() {
       return runtimeFilterDef;

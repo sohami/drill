@@ -22,8 +22,6 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class BloomFilterDef {
-  //the MurmurHash64_128 hash seed
-  private int hashSeed;
   //bloom filter size in bytes
   private int numBytes;
   //true send to itself, false send to foreman
@@ -38,28 +36,16 @@ public class BloomFilterDef {
   private Double rightNDV;
 
   @JsonCreator
-  public BloomFilterDef(@JsonProperty("hashSeed") int hashSeed, @JsonProperty("numBytes") int numBytes, @JsonProperty("local") boolean local, @JsonProperty("probeField")
+  public BloomFilterDef(@JsonProperty("numBytes") int numBytes, @JsonProperty("local") boolean local, @JsonProperty("probeField")
                         String probeField){
-    this.hashSeed = hashSeed;
     this.numBytes = numBytes;
     this.local = local;
     this.probeField = probeField;
   }
 
-  public int getHashSeed() {
-    return hashSeed;
-  }
-
-  public void setHashSeed(int hashSeed) {
-    this.hashSeed = hashSeed;
-  }
 
   public int getNumBytes() {
     return numBytes;
-  }
-
-  public void setNumBytes(int numBytes) {
-    this.numBytes = numBytes;
   }
 
   public boolean isLocal() {
@@ -70,13 +56,8 @@ public class BloomFilterDef {
     this.local = local;
   }
 
-
   public String getProbeField() {
     return probeField;
-  }
-
-  public void setProbeField(String probeField) {
-    this.probeField = probeField;
   }
 
   public String toString() {

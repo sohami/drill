@@ -22,9 +22,6 @@ import com.google.common.base.Preconditions;
 import io.netty.buffer.DrillBuf;
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.exceptions.UserException;
-import org.apache.drill.common.expression.ExpressionPosition;
-import org.apache.drill.common.expression.LogicalExpression;
-import org.apache.drill.common.expression.PathSegment;
 import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.common.map.CaseInsensitiveMap;
 import org.apache.drill.common.types.TypeProtos.MinorType;
@@ -32,8 +29,6 @@ import org.apache.drill.common.types.Types;
 import org.apache.drill.exec.exception.OutOfMemoryException;
 import org.apache.drill.exec.exception.SchemaChangeException;
 import org.apache.drill.exec.expr.TypeHelper;
-import org.apache.drill.exec.expr.ValueVectorReadExpression;
-import org.apache.drill.exec.expr.fn.impl.ValueVectorHashHelper;
 import org.apache.drill.exec.memory.BufferAllocator;
 import org.apache.drill.exec.ops.FragmentContext;
 import org.apache.drill.exec.ops.OperatorContext;
@@ -58,13 +53,7 @@ import org.apache.drill.exec.vector.AllocationHelper;
 import org.apache.drill.exec.vector.NullableVarCharVector;
 import org.apache.drill.exec.vector.SchemaChangeCallBack;
 import org.apache.drill.exec.vector.ValueVector;
-import org.apache.drill.exec.work.filter.BloomFilter;
-import org.apache.drill.exec.work.filter.RuntimeFilterWritable;
-
-import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -93,14 +82,6 @@ public class ScanBatch implements CloseableRecordBatch {
   private final List<Map<String, String>> implicitColumnList;
   private String currentReaderClassName;
   private final RecordBatchStatsContext batchStatsContext;
-  private SelectionVector2 selectionVector2;
-  private ValueVectorHashHelper.Hash64 hash64;
-  private Map<String, Integer> field2id = new HashMap<>();
-  private List<String> toFilterFields;
-  private long totalFilterRows = 0;
-  private SelectionVectorMode previousSVMode = SelectionVectorMode.NONE;
-
-
   /**
    *
    * @param context
@@ -139,7 +120,6 @@ public class ScanBatch implements CloseableRecordBatch {
       addImplicitVectors();
       currentReader = null;
       batchStatsContext = new RecordBatchStatsContext(context, oContext);
-      selectionVector2 = new SelectionVector2(context.getAllocator());
     } finally {
       oContext.getStats().stopProcessing();
     }
@@ -193,10 +173,6 @@ public class ScanBatch implements CloseableRecordBatch {
         currentReader.allocate(mutator.fieldVectorMap());
 
         recordCount = currentReader.next();
-        //check the RuntimeFilter every batch
-        boolean filtered = applyRuntimeFilter();
-        //Only the first time to notify the upper nodes about the SV2 to avoid operators
-        //like Filter to generate dynamic codes too often.
         Preconditions.checkArgument(recordCount >= 0, "recordCount from RecordReader.next() should not be negative");
         boolean isNewSchema = mutator.isNewSchema();
         populateImplicitVectorsAndSetCount();
@@ -212,32 +188,18 @@ public class ScanBatch implements CloseableRecordBatch {
         if (isNewSchema) {
           // Even when recordCount = 0, we should return return OK_NEW_SCHEMA if current reader presents a new schema.
           // This could happen when data sources have a non-trivial schema with 0 row.
-          if (filtered) {
-            container.buildSchema(SelectionVectorMode.TWO_BYTE);
-          } else {
-            container.buildSchema(SelectionVectorMode.NONE);
-          }
+          container.buildSchema(SelectionVectorMode.NONE);
           schema = container.getSchema();
           return IterOutcome.OK_NEW_SCHEMA;
         }
 
-        if (recordCount == 0) {
-          continue; // Skip to next loop iteration if reader returns 0 row and has same schema.
-        }
-
-        if (filtered && previousSVMode != SelectionVectorMode.TWO_BYTE) {
-          container.buildSchema(SelectionVectorMode.TWO_BYTE);
-          return IterOutcome.OK_NEW_SCHEMA;
-        }
-
-        if (!filtered && previousSVMode != SelectionVectorMode.NONE) {
-          container.buildSchema(SelectionVectorMode.NONE);
-          return IterOutcome.OK_NEW_SCHEMA;
-        }
-
         // Handle case of same schema.
-        // return OK if recordCount > 0 && ! isNewSchema
-        return IterOutcome.OK;
+        if (recordCount == 0) {
+            continue; // Skip to next loop iteration if reader returns 0 row and has same schema.
+        } else {
+          // return OK if recordCount > 0 && ! isNewSchema
+          return IterOutcome.OK;
+        }
       }
     } catch (OutOfMemoryException ex) {
       clearFieldVectorMap();
@@ -259,97 +221,6 @@ public class ScanBatch implements CloseableRecordBatch {
       throw UserException.internalError(ex).build(logger);
     } finally {
       oContext.getStats().stopProcessing();
-    }
-  }
-
-  /**
-   *
-   * @return True means rows are filtered by the RuntimeFilter , SelectionVector2 is set.
-   * False means not affected by the RuntimeFilter, SelectionVector2 is no set.
-   * @throws SchemaChangeException
-   */
-  private boolean applyRuntimeFilter() throws SchemaChangeException {
-    RuntimeFilterWritable runtimeFilterWritable = context.getRuntimeFilter();
-    if (runtimeFilterWritable == null) {
-      return false;
-    }
-    if (recordCount <= 0) {
-      return false;
-    }
-    List<BloomFilter> bloomFilters = runtimeFilterWritable.unwrap();
-    if (hash64 == null) {
-      ValueVectorHashHelper hashHelper = new ValueVectorHashHelper(this, context);
-      try {
-        //generate hash helper
-        this.toFilterFields = runtimeFilterWritable.getRuntimeFilterBDef().getProbeFieldsList();
-        List<LogicalExpression> hashFieldExps = new ArrayList<>();
-        List<TypedFieldId> typedFieldIds = new ArrayList<>();
-        for (String toFilterField : toFilterFields) {
-          SchemaPath schemaPath = new SchemaPath(new PathSegment.NameSegment(toFilterField), ExpressionPosition.UNKNOWN);
-          TypedFieldId typedFieldId = container.getValueVectorId(schemaPath);
-          this.field2id.put(toFilterField, typedFieldId.getFieldIds()[0]);
-          typedFieldIds.add(typedFieldId);
-          ValueVectorReadExpression toHashFieldExp = new ValueVectorReadExpression(typedFieldId);
-          hashFieldExps.add(toHashFieldExp);
-        }
-        hash64 = hashHelper.getHash64(hashFieldExps.toArray(new LogicalExpression[hashFieldExps.size()]), typedFieldIds.toArray(new TypedFieldId[typedFieldIds.size()]));
-      } catch (Exception e) {
-        throw UserException.internalError(e).build(logger);
-      }
-    }
-    selectionVector2.allocateNew(recordCount);
-    //To make each independent bloom filter work together to construct a final filter result: BitSet.
-    BitSet bitSet = new BitSet(recordCount);
-    for (int i = 0; i < toFilterFields.size(); i++) {
-      BloomFilter bloomFilter = bloomFilters.get(i);
-      String fieldName = toFilterFields.get(i);
-      computeBitSet(field2id.get(fieldName), bloomFilter, bitSet);
-    }
-
-    int svIndex = 0;
-    int tmpFilterRows = 0;
-    for (int i = 0; i < recordCount; i++) {
-      boolean contain = bitSet.get(i);
-      if (contain) {
-        selectionVector2.setIndex(svIndex, i);
-        svIndex++;
-      } else {
-        tmpFilterRows++;
-      }
-    }
-    selectionVector2.setRecordCount(svIndex);
-    if (tmpFilterRows > 0 && tmpFilterRows == recordCount) {
-      //all rows of the batch was filtered
-      recordCount = 0;
-      selectionVector2.clear();
-      logger.debug("filter {} rows by the RuntimeFilter", tmpFilterRows);
-      //return false to avoid unnecessary SV2 memory copy work
-      return false;
-    }
-    if (tmpFilterRows > 0 && tmpFilterRows != recordCount ) {
-      //partial of the rows was filtered
-      totalFilterRows = totalFilterRows + tmpFilterRows;
-      recordCount = svIndex;
-      logger.debug("filter {} rows by the RuntimeFilter", tmpFilterRows);
-      return true;
-    }
-    //no rows filtered
-    if (tmpFilterRows == 0) {
-      selectionVector2.clear();
-    }
-    return false;
-  }
-
-
-  private void computeBitSet(int fieldId, BloomFilter bloomFilter, BitSet bitSet) throws SchemaChangeException {
-    for (int rowIndex = 0; rowIndex < recordCount; rowIndex++) {
-      long hash = hash64.hash64Code(rowIndex, 0, fieldId);
-      boolean contain = bloomFilter.find(hash);
-      if (contain) {
-        bitSet.set(rowIndex, true);
-      } else {
-        bitSet.set(rowIndex, false);
-      }
     }
   }
 
@@ -406,7 +277,7 @@ public class ScanBatch implements CloseableRecordBatch {
 
   @Override
   public SelectionVector2 getSelectionVector2() {
-    return selectionVector2;
+    return null;
   }
 
   @Override

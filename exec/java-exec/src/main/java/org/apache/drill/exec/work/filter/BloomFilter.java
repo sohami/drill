@@ -37,8 +37,6 @@ public class BloomFilter {
   // Minimum bloom filter data size.
   private static final int MINIMUM_BLOOM_SIZE_IN_BYTES = 256;
 
-  private static final int DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE_IN_BYTES = 16 * 1024 * 1024;
-
   private DrillBuf byteBuf;
 
   private int numBytes;
@@ -70,11 +68,6 @@ public class BloomFilter {
     if (numBytes < MINIMUM_BLOOM_SIZE_IN_BYTES) {
       numBytes = MINIMUM_BLOOM_SIZE_IN_BYTES;
     }
-
-    if (numBytes > DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE_IN_BYTES) {
-      numBytes = DEFAULT_MAXIMUM_BLOOM_FILTER_SIZE_IN_BYTES;
-    }
-
     // 32 bytes alignment, one bucket.
     numBytes = (numBytes + 0x1F) & (~0x1F);
     return numBytes;

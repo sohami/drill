@@ -45,10 +45,6 @@ public class RuntimeFilterWritable implements AutoCloseables.Closeable {
     return runtimeFilterBDef;
   }
 
-  public void setRuntimeFilterBDef(BitData.RuntimeFilterBDef runtimeFilterBDef) {
-    this.runtimeFilterBDef = runtimeFilterBDef;
-  }
-
   public DrillBuf[] getData() {
     return data;
   }
