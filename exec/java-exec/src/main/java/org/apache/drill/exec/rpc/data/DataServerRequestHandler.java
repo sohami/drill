@@ -113,7 +113,8 @@ class DataServerRequestHandler implements RequestHandler<DataServerConnection> {
       // hand to WorkerBee to solve the received RuntimeFilter, the receiver maybe Foreman or a scan node.
       bee.receiveRuntimeFilter(runtimeFilterWritable);
     } catch (Exception e) {
-      logger.error("error to solve received runtime filter, {}", QueryIdHelper.getQueryId(runtimeFilterBDef.getQueryId()) , e);
+      logger.error("error to solve received runtime filter, {}",
+        QueryIdHelper.getQueryId(runtimeFilterBDef.getQueryId()), e);
       ackSender.clear();
       sender.send(new Response(BitData.RpcType.ACK, Acks.FAIL));
     } finally {

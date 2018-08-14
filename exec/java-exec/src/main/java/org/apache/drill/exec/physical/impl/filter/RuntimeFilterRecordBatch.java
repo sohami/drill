@@ -31,7 +31,6 @@ import org.apache.drill.exec.physical.config.Filter;
 import org.apache.drill.exec.record.AbstractSingleRecordBatch;
 import org.apache.drill.exec.record.BatchSchema.SelectionVectorMode;
 import org.apache.drill.exec.record.RecordBatch;
-import org.apache.drill.exec.record.TransferPair;
 import org.apache.drill.exec.record.TypedFieldId;
 import org.apache.drill.exec.record.VectorWrapper;
 import org.apache.drill.exec.record.selection.SelectionVector2;
@@ -56,8 +55,8 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<Filter> 
   private ValueVectorHashHelper.Hash64 hash64;
   private Map<String, Integer> field2id = new HashMap<>();
   private List<String> toFilterFields;
+  private List<BloomFilter> bloomFilters;
   private int originalRecordCount;
-  private int recordCount;
   private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RuntimeFilterRecordBatch.class);
 
   public RuntimeFilterRecordBatch(Filter pop, RecordBatch incoming, FragmentContext context) throws OutOfMemoryException {
@@ -88,7 +87,7 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<Filter> 
   protected IterOutcome doWork() {
     container.transferIn(incoming.getContainer());
     originalRecordCount = incoming.getRecordCount();
-    sv2.setOriginalRecordCount(originalRecordCount);
+    sv2.setBatchActualRecordCount(originalRecordCount);
     try {
       applyRuntimeFilter();
     } catch (SchemaChangeException e) {
@@ -111,26 +110,31 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<Filter> 
       sv2.clear();
     }
 
+    // reset the output container and hash64
+    container.clear();
+    hash64 = null;
+
     switch (incoming.getSchema().getSelectionVectorMode()) {
       case NONE:
         if (sv2 == null) {
           sv2 = new SelectionVector2(oContext.getAllocator());
         }
-        for (final VectorWrapper<?> v : incoming) {
-          container.addOrGet(v.getField(), callBack);
-        }
         break;
       case TWO_BYTE:
         sv2 = new SelectionVector2(oContext.getAllocator());
-        for (final VectorWrapper<?> v : incoming) {
-          container.addOrGet(v.getField(), callBack);
-        }
         break;
       case FOUR_BYTE:
-
       default:
         throw new UnsupportedOperationException();
     }
+
+    // Prepare the output container
+    for (final VectorWrapper<?> v : incoming) {
+      container.addOrGet(v.getField(), callBack);
+    }
+
+    // Setup hash64
+    setupHashHelper();
 
     if (container.isSchemaChanged()) {
       container.buildSchema(SelectionVectorMode.TWO_BYTE);
@@ -140,24 +144,25 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<Filter> 
   }
 
   /**
-   *
-   * @return True means rows are filtered by the RuntimeFilter , SelectionVector2 is set.
-   * False means not affected by the RuntimeFilter, SelectionVector2 is no set.
-   * @throws SchemaChangeException
+   * Takes care of setting up HashHelper if RuntimeFilter is received and the HashHelper is not already setup. For each
+   * schema change hash64 should be reset and this method needs to be called again.
    */
-  private void applyRuntimeFilter() throws SchemaChangeException {
-    RuntimeFilterWritable runtimeFilterWritable = context.getRuntimeFilter();
+  private void setupHashHelper() {
+    final RuntimeFilterWritable runtimeFilterWritable = context.getRuntimeFilter();
+
+    // Check if RuntimeFilterWritable was received by the minor fragment or not
     if (runtimeFilterWritable == null) {
-      sv2.setRecordCount(incoming.getRecordCount());
       return;
     }
-    if (originalRecordCount <= 0) {
-      sv2.setRecordCount(0);
-      return ;
+
+    // Check if bloomFilters is initialized or not
+    if (bloomFilters == null) {
+      bloomFilters = runtimeFilterWritable.unwrap();
     }
-    List<BloomFilter> bloomFilters = runtimeFilterWritable.unwrap();
+
+    // Check if HashHelper is initialized or not
     if (hash64 == null) {
-      ValueVectorHashHelper hashHelper = new ValueVectorHashHelper(this, context);
+      ValueVectorHashHelper hashHelper = new ValueVectorHashHelper(incoming, context);
       try {
         //generate hash helper
         this.toFilterFields = runtimeFilterWritable.getRuntimeFilterBDef().getProbeFieldsList();
@@ -171,12 +176,41 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<Filter> 
           ValueVectorReadExpression toHashFieldExp = new ValueVectorReadExpression(typedFieldId);
           hashFieldExps.add(toHashFieldExp);
         }
-        hash64 = hashHelper.getHash64(hashFieldExps.toArray(new LogicalExpression[hashFieldExps.size()]), typedFieldIds.toArray(new TypedFieldId[typedFieldIds.size()]));
+        hash64 = hashHelper.getHash64(hashFieldExps.toArray(new LogicalExpression[hashFieldExps.size()]),
+          typedFieldIds.toArray(new TypedFieldId[typedFieldIds.size()]));
       } catch (Exception e) {
         throw UserException.internalError(e).build(logger);
       }
     }
+  }
+
+  /**
+   * If RuntimeFilter is available then applies the filter condition on the incoming batch records and creates an SV2
+   * to store indexes which passes the filter condition. In case when RuntimeFilter is not available it just pass
+   * through all the records from incoming batch to downstream.
+   * @throws SchemaChangeException
+   */
+  private void applyRuntimeFilter() throws SchemaChangeException {
+    if (originalRecordCount <= 0) {
+      sv2.setRecordCount(0);
+      return;
+    }
+
+    final RuntimeFilterWritable runtimeFilterWritable = context.getRuntimeFilter();
     sv2.allocateNew(originalRecordCount);
+
+    if (runtimeFilterWritable == null) {
+      // means none of the rows are filtered out hence set all the indexes
+      for (int i = 0; i < originalRecordCount; ++i) {
+        sv2.setIndex(i, i);
+      }
+      sv2.setRecordCount(originalRecordCount);
+      return;
+    }
+
+    // Setup a hash helper if need be
+    setupHashHelper();
+
     //To make each independent bloom filter work together to construct a final filter result: BitSet.
     BitSet bitSet = new BitSet(originalRecordCount);
     for (int i = 0; i < toFilterFields.size(); i++) {
@@ -197,27 +231,13 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<Filter> 
       }
     }
 
-    if (tmpFilterRows > 0 && tmpFilterRows == originalRecordCount) {
-      //all rows of the batch was filtered
-      recordCount = 0;
-      logger.debug("filter {} rows by the RuntimeFilter", tmpFilterRows);
-    }
-    if (tmpFilterRows > 0 && tmpFilterRows != originalRecordCount ) {
-      //partial of the rows was filtered
-      //totalFilterRows = totalFilterRows + tmpFilterRows;
-      recordCount = svIndex;
-      logger.debug("filter {} rows by the RuntimeFilter", tmpFilterRows);
-    }
-    //no rows filtered
-    if (tmpFilterRows == 0) {
-      recordCount = originalRecordCount;
-    }
-    sv2.setRecordCount(recordCount);
-    return ;
+    logger.debug("RuntimeFiltered has filtered out {} rows from incoming with {} rows",
+      tmpFilterRows, originalRecordCount);
+    sv2.setRecordCount(svIndex);
   }
 
   private void computeBitSet(int fieldId, BloomFilter bloomFilter, BitSet bitSet) throws SchemaChangeException {
-    for (int rowIndex = 0; rowIndex < recordCount; rowIndex++) {
+    for (int rowIndex = 0; rowIndex < originalRecordCount; rowIndex++) {
       long hash = hash64.hash64Code(rowIndex, 0, fieldId);
       boolean contain = bloomFilter.find(hash);
       if (contain) {

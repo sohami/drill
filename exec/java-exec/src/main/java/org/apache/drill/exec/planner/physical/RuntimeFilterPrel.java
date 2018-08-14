@@ -53,9 +53,4 @@ public class RuntimeFilterPrel extends SinglePrel{
   public SelectionVectorMode getEncoding() {
     return SelectionVectorMode.TWO_BYTE;
   }
-
-  @Override
-  public Prel prepareForLateralUnnestPipeline(List<RelNode> children) {
-    return (Prel) this.copy(this.traitSet, children);
-  }
 }
