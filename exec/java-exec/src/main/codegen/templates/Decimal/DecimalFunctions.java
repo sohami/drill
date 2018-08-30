@@ -171,8 +171,8 @@ public class ${type.name}Functions {
               right.precision, right.scale);
 
       // Do the verification of computed scale and precision here based on actual data
-      typeInference.verifyScaleAndPrecision();
-      result.scale = typeInference.getOutputScale();
+      //typeInference.verifyScaleAndPrecision();
+      result.scale = Math.max(0, typeInference.getOutputScale());
       result.precision = typeInference.getOutputPrecision();
 
       java.math.BigDecimal opResult =
