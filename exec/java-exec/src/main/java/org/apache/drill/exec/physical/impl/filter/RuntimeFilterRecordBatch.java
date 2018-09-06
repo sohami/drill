@@ -36,7 +36,9 @@ import org.apache.drill.exec.record.VectorWrapper;
 import org.apache.drill.exec.record.selection.SelectionVector2;
 import org.apache.drill.exec.record.selection.SelectionVector4;
 import org.apache.drill.exec.work.filter.BloomFilter;
+import org.apache.drill.exec.work.filter.RuntimeFilterSink;
 import org.apache.drill.exec.work.filter.RuntimeFilterWritable;
+
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
@@ -148,20 +150,15 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<RuntimeF
    * schema change hash64 should be reset and this method needs to be called again.
    */
   private void setupHashHelper() {
-    final RuntimeFilterWritable runtimeFilterWritable = context.getRuntimeFilter();
+    final RuntimeFilterSink runtimeFilterSink = context.getRuntimeFilterSink();
 
     // Check if RuntimeFilterWritable was received by the minor fragment or not
-    if (runtimeFilterWritable == null) {
+    if (!runtimeFilterSink.containOne()) {
       return;
     }
-
-    // Check if bloomFilters is initialized or not
-    if (bloomFilters == null) {
-      bloomFilters = runtimeFilterWritable.unwrap();
-    }
-
     // Check if HashHelper is initialized or not
     if (hash64 == null) {
+      RuntimeFilterWritable runtimeFilterWritable = runtimeFilterSink.fetchLatestAggregatedOne();
       ValueVectorHashHelper hashHelper = new ValueVectorHashHelper(incoming, context);
       try {
         //generate hash helper
@@ -196,10 +193,10 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<RuntimeF
       return;
     }
 
-    final RuntimeFilterWritable runtimeFilterWritable = context.getRuntimeFilter();
+    final RuntimeFilterSink runtimeFilterSink = context.getRuntimeFilterSink();
     sv2.allocateNew(originalRecordCount);
 
-    if (runtimeFilterWritable == null) {
+    if (!runtimeFilterSink.containOne()) {
       // means none of the rows are filtered out hence set all the indexes
       for (int i = 0; i < originalRecordCount; ++i) {
         sv2.setIndex(i, i);
@@ -208,8 +205,13 @@ public class RuntimeFilterRecordBatch extends AbstractSingleRecordBatch<RuntimeF
       return;
     }
 
-    // Setup a hash helper if need be
+    // Setup a hash helper if needed
     setupHashHelper();
+
+    if (runtimeFilterSink.hasFreshOne()) {
+      RuntimeFilterWritable freshRuntimeFilterWritable = runtimeFilterSink.fetchLatestAggregatedOne();
+      bloomFilters = freshRuntimeFilterWritable.unwrap();
+    }
 
     //To make each independent bloom filter work together to construct a final filter result: BitSet.
     BitSet bitSet = new BitSet(originalRecordCount);

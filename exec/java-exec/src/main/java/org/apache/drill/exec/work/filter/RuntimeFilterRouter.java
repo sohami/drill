@@ -18,7 +18,6 @@
 package org.apache.drill.exec.work.filter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.drill.shaded.guava.com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.drill.exec.ops.AccountingDataTunnel;
 import org.apache.drill.exec.ops.Consumer;
@@ -60,17 +59,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * The HashJoinRecordBatch is responsible to generate the RuntimeFilter.
  * To Partitioned case:
  * The generated RuntimeFilter will be sent to the Foreman node. The Foreman node receives the RuntimeFilter
- * async, aggregates them, broadcasts them the Scan nodes's MinorFragment. The RuntimeFilterRecordBatch which
- * steps over the Scan node will leverage the received RuntimeFilter to filter out the scanned rows to generate
- * the SV2.
+ * async, broadcasts them to the Scan nodes's MinorFragment. The RuntimeFilterRecordBatch which
+ * steps over the Scan node will leverage the received RuntimeFilter (which will be aggregated at the
+ * RuntimeFilterRecordBatch end) to filter out the scanned rows to generate the SV2.
  * To Broadcast case:
  * The generated RuntimeFilter will be sent to Scan node's RuntimeFilterRecordBatch directly. The working of the
  * RuntimeFilterRecordBath is the same as the Partitioned one.
- *
- *
- *
  */
-public class RuntimeFilterManager {
+public class RuntimeFilterRouter {
 
   private Wrapper rootWrapper;
   //HashJoin node's major fragment id to its corresponding probe side nodes's endpoints
@@ -86,7 +82,7 @@ public class RuntimeFilterManager {
 
   private SendingAccountor sendingAccountor = new SendingAccountor();
 
-  private static final Logger logger = LoggerFactory.getLogger(RuntimeFilterManager.class);
+  private static final Logger logger = LoggerFactory.getLogger(RuntimeFilterRouter.class);
 
   /**
    * This class maintains context for the runtime join push down's filter management. It
@@ -95,7 +91,7 @@ public class RuntimeFilterManager {
    * @param workUnit
    * @param drillbitContext
    */
-  public RuntimeFilterManager(QueryWorkUnit workUnit, DrillbitContext drillbitContext) {
+  public RuntimeFilterRouter(QueryWorkUnit workUnit, DrillbitContext drillbitContext) {
     this.rootWrapper = workUnit.getRootWrapper();
     this.drillbitContext = drillbitContext;
   }
@@ -138,24 +134,8 @@ public class RuntimeFilterManager {
     int majorId = runtimeFilterB.getMajorFragmentId();
     UserBitShared.QueryId queryId = runtimeFilterB.getQueryId();
     List<String> probeFields = runtimeFilterB.getProbeFieldsList();
-    logger.info("RuntimeFilterManager receives a runtime filter , majorId:{}, queryId:{}", majorId, QueryIdHelper.getQueryId(queryId));
-    int size;
-    synchronized (this) {
-      size = joinMjId2scanSize.get(majorId);
-      Preconditions.checkState(size > 0);
-      RuntimeFilterWritable aggregatedRuntimeFilter = joinMjId2AggregatedRF.get(majorId);
-      if (aggregatedRuntimeFilter == null) {
-        aggregatedRuntimeFilter = runtimeFilterWritable;
-      } else {
-        aggregatedRuntimeFilter.aggregate(runtimeFilterWritable);
-      }
-      joinMjId2AggregatedRF.put(majorId, aggregatedRuntimeFilter);
-      size--;
-      joinMjId2scanSize.put(majorId, size);
-    }
-    if (size == 0) {
-      broadcastAggregatedRuntimeFilter(majorId, queryId, probeFields);
-    }
+    logger.info("RuntimeFilterRouter receives a runtime filter , majorId:{}, queryId:{}", majorId, QueryIdHelper.getQueryId(queryId));
+    broadcastAggregatedRuntimeFilter(majorId, queryId, probeFields);
   }
 
 
@@ -235,8 +215,6 @@ public class RuntimeFilterManager {
 
   private class WrapperOperatorsVisitor extends AbstractPhysicalVisitor<Void, Void, RuntimeException> {
 
-    private PhysicalOperator targetOp;
-
     private Fragment fragment;
 
     private boolean contain = false;
@@ -251,7 +229,6 @@ public class RuntimeFilterManager {
 
 
     public WrapperOperatorsVisitor(PhysicalOperator targetOp, Fragment fragment) {
-      this.targetOp = targetOp;
       this.fragment = fragment;
       this.targetIsGroupScan = targetOp instanceof GroupScan;
       this.targetIsHashJoin = targetOp instanceof HashJoinPOP;

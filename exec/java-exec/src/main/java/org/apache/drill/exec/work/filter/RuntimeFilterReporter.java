@@ -72,7 +72,7 @@ public class RuntimeFilterReporter {
       AccountingDataTunnel dataTunnel = context.getDataTunnel(foremanEndpoint);
       dataTunnel.sendRuntimeFilter(runtimeFilterWritable);
     } else {
-      context.setRuntimeFilter(runtimeFilterWritable);
+      context.addRuntimeFilter(runtimeFilterWritable);
     }
   }
 }
