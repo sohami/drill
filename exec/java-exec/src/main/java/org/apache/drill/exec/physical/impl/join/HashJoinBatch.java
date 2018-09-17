@@ -929,7 +929,8 @@ public class HashJoinBatch extends AbstractBinaryRecordBatch<HashJoinPOP> {
 
     if (cycleNum == 0 && enableRuntimeFilter) {
       if (bloomFilters.size() > 0) {
-        runtimeFilterReporter.sendOut(bloomFilters, probeFields, this.popConfig.getRuntimeFilterDef().isSendToForeman());
+        int hashJoinOpId = this.popConfig.getOperatorId();
+        runtimeFilterReporter.sendOut(bloomFilters, probeFields, this.popConfig.getRuntimeFilterDef().isSendToForeman(), hashJoinOpId);
       }
     }
 

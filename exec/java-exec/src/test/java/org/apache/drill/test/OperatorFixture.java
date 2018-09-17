@@ -197,7 +197,7 @@ public class OperatorFixture extends BaseFixture implements AutoCloseable {
       this.controls = new ExecutionControls(options);
       compiler = new CodeCompiler(config, options);
       bufferManager = new BufferManagerImpl(allocator);
-      this.runtimeFilterSink = new RuntimeFilterSink();
+      this.runtimeFilterSink = new RuntimeFilterSink(allocator);
     }
 
     private static FunctionImplementationRegistry newFunctionRegistry(

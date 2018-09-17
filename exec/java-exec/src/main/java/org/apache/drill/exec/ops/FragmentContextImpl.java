@@ -209,7 +209,7 @@ public class FragmentContextImpl extends BaseFragmentContext implements Executor
     stats = new FragmentStats(allocator, fragment.getAssignment());
     bufferManager = new BufferManagerImpl(this.allocator);
     constantValueHolderCache = Maps.newHashMap();
-    this.runtimeFilterSink = new RuntimeFilterSink();
+    this.runtimeFilterSink = new RuntimeFilterSink(this.allocator);
   }
 
   /**
