@@ -90,18 +90,47 @@ function wrapQuery() {
     //dBug: console.log("Query Input:" + origQueryText);
     var mustWrapWithLimit = $('input[name="forceLimit"]:checked').length > 0;
     if (mustWrapWithLimit) {
-        var semicolonIdx = origQueryText.lastIndexOf(';');
-        //Check and eliminate trailing semicolon
-        if (semicolonIdx  == origQueryText.length-1 ) {
-          origQueryText = origQueryText.substring(0, semicolonIdx)
+        //Check if NonSelect
+        if (!isSelectQuery(origQueryText)) {
+          alert("AutoLimit cannot apply for non-select queries\nQuery will be submitted without a limit wrap"); 
+        } else {
+            //Inject comment and wrap query
+            var semicolonIdx = origQueryText.lastIndexOf(';');
+            //Check and eliminate trailing semicolon
+            if (semicolonIdx  == origQueryText.length-1 ) {
+              origQueryText = origQueryText.substring(0, semicolonIdx)
+            }
+            var qLimit = $('#queryLimit').val();
+            //Wrapping Query
+            var wrappedQuery = "-- [autoLimit: " + qLimit + " rows]\nselect * from (\n" + origQueryText + "\n) limit " + qLimit;
+            //dBug: console.log("Query Output:" + wrappedQuery);
+            //Updating query for submission
+            $('#query').attr('value', wrappedQuery);
         }
-        var qLimit = $('#queryLimit').val();
-        var wrappedQuery = "-- [autoLimit: " + qLimit + " rows]\nselect * from (\n" + origQueryText + "\n) limit " + qLimit;
-        //dBug: console.log("Query Output:" + wrappedQuery);
-        //Wrapping Query
-        $('#query').attr('value', wrappedQuery);
     } else {
         //Do not change the query
         //dBug: console.log("Query Output:" + origQueryText);
     }
+}
+
+//Check if query is select query (required for limit wrapping)
+function isSelectQuery(queryStr) {
+    console.log("Input: " + queryStr);
+    var lines = queryStr.split(/[\r\n]+/);
+    console.log("Count: " + lines.length);
+    for (i=0; i<lines.length; i++) {
+        let line = lines[i].trim().toLowerCase();
+        //[test] isComment -> doNothing
+        if (line.startsWith("--")) {
+            continue; //i.e. test more lines
+        }
+        //[test] isSelect/isWith -> is a select query
+        if (line.startsWith("select") || line.startsWith("with")) { 
+            return true;
+        }
+        //[test] Since not a select or a comment, this is a nonSelect query
+        return false;
+    }
+    //This is only if submission is empty (e.g. all lines are comments)
+    return false;
 }

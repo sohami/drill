@@ -80,7 +80,7 @@
     <button class="btn btn-default" type="button" onclick="<#if model.isOnlyImpersonationEnabled()>doSubmitQueryWithUserName()<#else>wrapAndSubmitQuery()</#if>">
       Submit
     </button>
-    <input type="checkbox" name="forceLimit" value="limit" <#if model.isAutoLimitEnabled()>checked</#if>> Limit results to <input type="text" id="queryLimit" min="0" value="${model.getDefaultRowsAutoLimited()}" size="6" pattern="[0-9]*"> rows <span class="glyphicon glyphicon-info-sign" onclick="alert('Limits the number of records retrieved in the query')" style="cursor:pointer"></span>
+    <input type="checkbox" name="forceLimit" value="limit" <#if model.isAutoLimitEnabled()>checked</#if>> Limit results to <input type="text" id="queryLimit" min="0" value="${model.getDefaultRowsAutoLimited()}" size="6" pattern="[0-9]*"> rows <span class="glyphicon glyphicon-info-sign" title="Limits the number of records retrieved in the query" style="cursor:pointer"></span>
   </form>
 
   <script>
