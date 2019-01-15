@@ -135,7 +135,7 @@ public class DrillSqlWorker {
 
     final SqlConverter parser = new SqlConverter(context);
     injector.injectChecked(context.getExecutionControls(), "sql-parsing", ForemanSetupException.class);
-    final SqlNode sqlNode = parser.parse(sql);
+    final SqlNode sqlNode = wrapWithAutoLimit(parser, context, sql);
     final AbstractSqlHandler handler;
     final SqlHandlerConfig config = new SqlHandlerConfig(context, parser);
 
@@ -182,5 +182,21 @@ public class DrillSqlWorker {
     }
 
     return handler.getPlan(sqlNode);
+  }
+
+  //Wrap with Auto Limit
+  private static SqlNode wrapWithAutoLimit(SqlConverter parser, QueryContext context, String sql) {
+    SqlNode sqlNode = parser.parse(sql);
+    logger.info("isAutoLimitEnabled:: {}", context.isAutoLimitEnabled());
+    if (context.isAutoLimitEnabled() && sqlNode.getKind() == SqlKind.SELECT) {
+      int autoLimitRowCount = context.getAutoLimitRowCount();
+      StringBuilder wrappedSql = new StringBuilder("-- [autoLimit: ").append(autoLimitRowCount).append(" rows]\n")
+          .append("select * from (\n")
+          .append(sql)
+          .append("\n) limit ").append(autoLimitRowCount);
+      logger.info("WRAPPED:: {}", wrappedSql.toString());
+      sqlNode = parser.parse(wrappedSql.toString());
+    }
+    return sqlNode;
   }
 }

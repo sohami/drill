@@ -89,27 +89,10 @@ function wrapQuery() {
     var origQueryText = $('#query').attr('value');
     //dBug: console.log("Query Input:" + origQueryText);
     var mustWrapWithLimit = $('input[name="forceLimit"]:checked').length > 0;
-    if (mustWrapWithLimit) {
-        //Check if NonSelect
-        if (!isSelectQuery(origQueryText)) {
-          alert("AutoLimit cannot apply for non-select queries\nQuery will be submitted without a limit wrap"); 
-        } else {
-            //Inject comment and wrap query
-            var semicolonIdx = origQueryText.lastIndexOf(';');
-            //Check and eliminate trailing semicolon
-            if (semicolonIdx  == origQueryText.length-1 ) {
-              origQueryText = origQueryText.substring(0, semicolonIdx)
-            }
-            var qLimit = $('#queryLimit').val();
-            //Wrapping Query
-            var wrappedQuery = "-- [autoLimit: " + qLimit + " rows]\nselect * from (\n" + origQueryText + "\n) limit " + qLimit;
-            //dBug: console.log("Query Output:" + wrappedQuery);
-            //Updating query for submission
-            $('#query').attr('value', wrappedQuery);
-        }
-    } else {
-        //Do not change the query
-        //dBug: console.log("Query Output:" + origQueryText);
+    //[NEO] Clear field when submitting if !mustWrapWithLimit
+    if (!mustWrapWithLimit) {
+      //Wipe out any numeric entry in the f ield before
+      $('#autoLimit').attr('value', '');
     }
 }
 

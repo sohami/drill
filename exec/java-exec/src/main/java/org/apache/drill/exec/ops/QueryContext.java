@@ -74,6 +74,7 @@ public class QueryContext implements AutoCloseable, OptimizerRulesContext, Schem
   private final QueryContextInformation queryContextInfo;
   private final ViewExpansionContext viewExpansionContext;
   private final SchemaTreeProvider schemaTreeProvider;
+  private final Integer autoLimitRowCount;
   /** Stores constants and their holders by type */
   private final Map<String, Map<MinorType, ValueHolder>> constantValueHolderCache;
 
@@ -85,8 +86,13 @@ public class QueryContext implements AutoCloseable, OptimizerRulesContext, Schem
   private DrillOperatorTable table;
 
   public QueryContext(final UserSession session, final DrillbitContext drillbitContext, QueryId queryId) {
+    this(session, drillbitContext, queryId, null);
+  }
+
+  public QueryContext(final UserSession session, final DrillbitContext drillbitContext, QueryId queryId, Integer autoLimit) {
     this.drillbitContext = drillbitContext;
     this.session = session;
+    this.autoLimitRowCount = autoLimit; //TODO DRILL-6960 autoLimit
     this.queryId = queryId;
     queryOptions = new QueryOptionManager(session.getOptions());
     executionControls = new ExecutionControls(queryOptions, drillbitContext.getEndpoint());
@@ -301,6 +307,14 @@ public class QueryContext implements AutoCloseable, OptimizerRulesContext, Schem
       holdersByType.put(type, valueHolder);
     }
     return valueHolder;
+  }
+
+  public boolean isAutoLimitEnabled() {
+    return (autoLimitRowCount != null);
+  }
+
+  public Integer getAutoLimitRowCount() {
+    return autoLimitRowCount;
   }
 
   @Override

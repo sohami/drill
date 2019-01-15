@@ -46,15 +46,21 @@ public class QueryWrapper {
   private static final double HEAP_MEMORY_FAILURE_THRESHOLD = 0.85;
 
   private final String query;
-
   private final String queryType;
+  private final Integer autoLimitRowCount;
 
   private static MemoryMXBean memMXBean = ManagementFactory.getMemoryMXBean();
 
   @JsonCreator
-  public QueryWrapper(@JsonProperty("query") String query, @JsonProperty("queryType") String queryType) {
+  public QueryWrapper(@JsonProperty("query") String query, @JsonProperty("queryType") String queryType, @JsonProperty("autoLimit") String autoLimit) {
     this.query = query;
     this.queryType = queryType.toUpperCase();
+    this.autoLimitRowCount = autoLimit.matches("[0-9]+") ? new Integer(autoLimit) : null;
+  }
+
+  @JsonCreator
+  public QueryWrapper(@JsonProperty("query") String query, @JsonProperty("queryType") String queryType) {
+    this(query, queryType, "");
   }
 
   public String getQuery() {
@@ -69,6 +75,14 @@ public class QueryWrapper {
     return QueryType.valueOf(queryType);
   }
 
+  public Integer getAutoLimitRowCount() {
+    return autoLimitRowCount;
+  }
+
+  public boolean isAutoLimitEnabled() {
+    return getAutoLimitRowCount() != null;
+  }
+
   public QueryResult run(final WorkManager workManager, final WebUserConnection webUserConnection) throws Exception {
     final RunQuery runQuery = RunQuery.newBuilder().setType(getType())
         .setPlan(getQuery())
@@ -76,7 +90,9 @@ public class QueryWrapper {
         .build();
 
     // Submit user query to Drillbit work queue.
-    final QueryId queryId = workManager.getUserWorker().submitWork(webUserConnection, runQuery);
+    final QueryId queryId = isAutoLimitEnabled() ?
+        workManager.getUserWorker().submitWork(webUserConnection, runQuery, getAutoLimitRowCount()) :
+        workManager.getUserWorker().submitWork(webUserConnection, runQuery);
 
     boolean isComplete = false;
     boolean nearlyOutOfHeapSpace = false;

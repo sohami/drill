@@ -83,10 +83,14 @@ public class QueryResources {
   @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
   @Produces(MediaType.TEXT_HTML)
   public Viewable submitQuery(@FormParam("query") String query,
-                              @FormParam("queryType") String queryType) throws Exception {
+                              @FormParam("queryType") String queryType,
+                              @FormParam("autoLimit") String autoLimit
+                              ) throws Exception {
     try {
       final String trimmedQueryString = CharMatcher.is(';').trimTrailingFrom(query.trim());
-      final QueryResult result = submitQueryJSON(new QueryWrapper(trimmedQueryString, queryType));
+      //Extract option of AutoLimit
+      String autoLimitValue = (autoLimit != null && autoLimit.matches("[0-9]+")) ? autoLimit : "";
+      final QueryResult result = submitQueryJSON(new QueryWrapper(trimmedQueryString, queryType, autoLimitValue));
       List<Integer> rowsPerPageValues = work.getContext().getConfig().getIntList(ExecConstants.HTTP_WEB_CLIENT_RESULTSET_ROWS_PER_PAGE_VALUES);
       Collections.sort(rowsPerPageValues);
       final String rowsPerPageValuesAsStr = Joiner.on(",").join(rowsPerPageValues);

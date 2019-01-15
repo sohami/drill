@@ -73,9 +73,13 @@ public class UserWorker{
   }
 
   public QueryId submitWork(UserClientConnection connection, RunQuery query) {
+    return submitWork(connection, query, null);
+  }
+
+  public QueryId submitWork(UserClientConnection connection, RunQuery query, Integer autoLimitRowCount) {
     final QueryId id = queryIdGenerator();
     incrementer.increment(connection.getSession());
-    Foreman foreman = new Foreman(bee, bee.getContext(), connection, id, query);
+    Foreman foreman = new Foreman(bee, bee.getContext(), connection, id, query, autoLimitRowCount);
     bee.addNewForeman(foreman);
     return id;
   }

@@ -124,6 +124,7 @@ public class Foreman implements Runnable {
 
   private RuntimeFilterRouter runtimeFilterRouter;
   private boolean enableRuntimeFilter;
+  private Integer autoLimit;
 
   /**
    * Constructor. Sets up the Foreman, but does not initiate any execution.
@@ -136,6 +137,22 @@ public class Foreman implements Runnable {
    */
   public Foreman(final WorkerBee bee, final DrillbitContext drillbitContext,
       final UserClientConnection connection, final QueryId queryId, final RunQuery queryRequest) {
+    this(bee, drillbitContext, connection, queryId, queryRequest, null);
+  }
+
+  /**
+   * Constructor. Sets up the Foreman, but does not initiate any execution.
+   *
+   * @param bee work manager (runs fragments)
+   * @param drillbitContext drillbit context
+   * @param connection connection
+   * @param queryId the id for the query
+   * @param queryRequest the query to execute
+   * @param autoLimitRowCount the number of rows to limit in execution (used for WebRequests)
+   */
+  public Foreman(final WorkerBee bee, final DrillbitContext drillbitContext,
+      final UserClientConnection connection, final QueryId queryId, final RunQuery queryRequest,
+      final Integer autoLimitRowCount) {
     this.queryId = queryId;
     this.queryIdString = QueryIdHelper.getQueryId(queryId);
     this.queryRequest = queryRequest;
@@ -143,8 +160,10 @@ public class Foreman implements Runnable {
     this.initiatingClient = connection;
     this.closeFuture = initiatingClient.getChannelClosureFuture();
     closeFuture.addListener(closeListener);
-
-    this.queryContext = new QueryContext(connection.getSession(), drillbitContext, queryId);
+    this.queryContext = new QueryContext(connection.getSession(), drillbitContext, queryId,
+        (autoLimitRowCount == null) ? null : autoLimitRowCount);
+    this.autoLimit = autoLimitRowCount;
+    logger.info("autoLimit asPer Foreman:: {}", autoLimitRowCount);
     this.queryManager = new QueryManager(queryId, queryRequest, drillbitContext.getStoreProvider(),
         drillbitContext.getClusterCoordinator(), this);
     this.queryRM = drillbitContext.getResourceManager().newQueryRM(this);
@@ -269,6 +288,7 @@ public class Foreman implements Runnable {
         // them together such that it is easy to search based on query id
         logger.info("Query text for query with id {} issued by {}: {}", queryIdString,
             queryContext.getQueryUserName(), sql);
+        logger.info("Query result should be limited to {} rows", autoLimit);
         runSQL(sql);
         break;
       case EXECUTION:
