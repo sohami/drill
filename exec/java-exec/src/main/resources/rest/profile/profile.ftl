@@ -114,8 +114,16 @@
     </#if>
   </ul>
   <div id="query-content" class="tab-content">
-    <div id="query-query" class="tab-pane">
-      <p><pre id="query-text" name="query-text"  style="background-color: #f5f5f5;">${model.getProfile().query}</pre></p>
+    <div id="query-query" class="tab-pane" style="background-color: #ffffff">
+      <p><pre id="query-text" name="query-text"  style="background-color: #f5f5f5; font-family:courier,monospace">${model.getProfile().query}</pre></p>
+      <#if model.hasAutoLimit()>
+          <div name="autoLimitWarning" style="cursor:help" class="panel panel-warning" title="WebUI Queries allow restricting the number of rows returned to avoid the server to hold excessive number of results rows in memory.&#10;This helps maintain server stability with faster response if the entire resultset will not be visualized in the browser">
+            <div class="panel-heading">
+            <span class="glyphicon glyphicon-pushpin" style="font-size:125%"></span>
+            <b>WARNING:</b> Query result was <b>automatically</b> limited to <span style="font-style:italic;font-weight:bold">${model.getAutoLimit()} rows</span>
+            </div>
+          </div>
+      </#if>
     </div>
     <div id="query-physical" class="tab-pane">
       <p><pre>${model.profile.plan}</pre></p>
@@ -387,6 +395,14 @@
       </div>
       <div id="operator-overview" class="panel-collapse collapse">
         <div class="panel-body">
+      <#if model.hasAutoLimit()>
+          <div name="autoLimitWarning" style="cursor:help" class="panel panel-warning" title="WebUI Queries allow restricting the number of rows returned to avoid the server to hold excessive number of results rows in memory.&#10;This helps maintain server stability with faster response if the entire resultset will not be visualized in the browser">
+            <div class="panel-heading">
+            <span class="glyphicon glyphicon-pushpin" style="font-size:125%"></span>
+            <b>WARNING:</b> Query result was <b>automatically</b> limited to <span style="font-style:italic;font-weight:bold">${model.getAutoLimit()} rows</span>
+            </div>
+          </div>
+      </#if>
           <div id="spillToDiskWarning" style="display:none;cursor:help" class="panel panel-warning" title="Spills occur because a buffered operator didn't get enough memory to hold data in memory. Increase the memory or ensure that number of spills &lt; 2">
             <div class="panel-heading"><span class="glyphicon glyphicon-alert" style="font-size:125%">&#xe209;</span> <b>WARNING:</b> Some operators have data spilled to disk. This will result in performance loss. (See <span style="font-style:italic;font-weight:bold">Avg Peak Memory</span> and <span style="font-style:italic;font-weight:bold">Max Peak Memory</span> below)
             <button type="button" class="close" onclick="closeWarning('spillToDiskWarning')" style="font-size:180%">&times;</button>
@@ -493,11 +509,9 @@
     viewer.setTheme("ace/theme/sqlserver");
     //CSS Formatting
     document.getElementById('query-query').style.fontSize='13px';
-    document.getElementById('query-query').style.fontFamily='courier';
     document.getElementById('query-query').style.lineHeight='1.5';
     document.getElementById('query-query').style.width='98%';
     document.getElementById('query-query').style.margin='auto';
-    document.getElementById('query-query').style.backgroundColor='#f5f5f5';
     viewer.resize();
     viewer.setReadOnly(true);
     viewer.setOptions({
@@ -530,7 +544,7 @@
     editor.$blockScrolling = "Infinity";
     //CSS Formatting
     document.getElementById('query-editor').style.fontSize='13px';
-    document.getElementById('query-editor').style.fontFamily='courier';
+    document.getElementById('query-editor').style.fontFamily='courier,monospace';
     document.getElementById('query-editor').style.lineHeight='1.5';
     document.getElementById('query-editor').style.width='98%';
     document.getElementById('query-editor').style.margin='auto';

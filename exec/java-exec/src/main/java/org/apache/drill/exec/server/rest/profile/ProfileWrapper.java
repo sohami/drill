@@ -150,6 +150,14 @@ public class ProfileWrapper {
     return globalProcessNanos;
   }
 
+  public boolean hasAutoLimit() {
+    return profile.hasAutoLimit();
+  }
+
+  public int getAutoLimit() {
+    return profile.getAutoLimit();
+  }
+
   public boolean hasError() {
     return profile.hasError() && profile.getError() != null;
   }
