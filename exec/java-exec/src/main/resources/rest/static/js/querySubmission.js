@@ -53,7 +53,18 @@ function doSubmitQueryWithUserName() {
 //Wrap & Submit Query (invoked directly if impersonation is not enabled)
 function wrapAndSubmitQuery() {
     //Wrap if required
-    wrapQuery();
+    var mustWrapWithLimit = $('input[name="forceLimit"]:checked').length > 0;
+    //Clear field when submitting if not mustWrapWithLimit
+    if (!mustWrapWithLimit) {
+      //Wipe out any numeric entry in the field before
+      $('#autoLimit').attr('value', '');
+    } else {
+      let autoLimitValue=$('#autoLimit').attr('value');
+      if (isNaN(autoLimitValue)) {
+        alert(autoLimitValue+ " is not a number. Please fill in a valid number");
+        return;
+      }
+    }
     //Submit query
     submitQuery();
 }
@@ -82,38 +93,4 @@ function submitQuery() {
             alert(errorThrown);
         }
     });
-}
-
-//Wraps a query with Limit by directly changing the query in the hidden textbox in the UI (see /query.ftl)
-function wrapQuery() {
-    var origQueryText = $('#query').attr('value');
-    //dBug: console.log("Query Input:" + origQueryText);
-    var mustWrapWithLimit = $('input[name="forceLimit"]:checked').length > 0;
-    //[NEO] Clear field when submitting if !mustWrapWithLimit
-    if (!mustWrapWithLimit) {
-      //Wipe out any numeric entry in the f ield before
-      $('#autoLimit').attr('value', '');
-    }
-}
-
-//Check if query is select query (required for limit wrapping)
-function isSelectQuery(queryStr) {
-    console.log("Input: " + queryStr);
-    var lines = queryStr.split(/[\r\n]+/);
-    console.log("Count: " + lines.length);
-    for (i=0; i<lines.length; i++) {
-        let line = lines[i].trim().toLowerCase();
-        //[test] isComment -> doNothing
-        if (line.startsWith("--")) {
-            continue; //i.e. test more lines
-        }
-        //[test] isSelect/isWith -> is a select query
-        if (line.startsWith("select") || line.startsWith("with")) { 
-            return true;
-        }
-        //[test] Since not a select or a comment, this is a nonSelect query
-        return false;
-    }
-    //This is only if submission is empty (e.g. all lines are comments)
-    return false;
 }
