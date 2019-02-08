@@ -34,7 +34,7 @@
 <#macro page_body>
   <div class="page-header">
   </div>
-  <div id="message" class="alert alert-info alert-dismissable" style="font-family: Courier;">
+  <div id="message" class="alert alert-info alert-dismissable" style="font-family: courier,monospace;">
     <button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
     Sample SQL query: <strong>SELECT * FROM cp.`employee.json` LIMIT 20</strong>
   </div>
@@ -77,12 +77,26 @@
       <input class="form-control" type="hidden" id="query" name="query"/>
     </div>
 
-    <button class="btn btn-default" type="button" onclick="<#if model.isOnlyImpersonationEnabled()>doSubmitQueryWithUserName()<#else>wrapAndSubmitQuery()</#if>">
+    <button class="btn btn-default" type="button" onclick="<#if model.isOnlyImpersonationEnabled()>doSubmitQueryWithUserName()<#else>doSubmitQueryWithAutoLimit()</#if>">
       Submit
     </button>
-    <input type="checkbox" name="forceLimit" value="limit" <#if model.isAutoLimitEnabled()>checked</#if>> Limit results to <input type="text" id="queryLimit" min="0" value="${model.getDefaultRowsAutoLimited()}" size="6" pattern="[0-9]*"> rows <span class="glyphicon glyphicon-info-sign" onclick="alert('Limits the number of records retrieved in the query')" style="cursor:pointer"></span>
+    <input type="checkbox" name="forceLimit" value="limit" <#if model.isAutoLimitEnabled()>checked</#if>> Limit results to <input type="text" id="autoLimit" name="autoLimit" min="0" value="${model.getDefaultRowsAutoLimited()?c}" size="6" pattern="[0-9]*"> rows <span class="glyphicon glyphicon-info-sign" title="Limits the number of records retrieved in the query. Ignored if query has a limit already" style="cursor:pointer"></span>
   </form>
-
+  <br>
+  <div id="userNameMissingError" style="cursor:help;display:none" class="panel panel-danger" title="Username is required since impersonation is enabled">
+    <div class="panel-heading">
+      <span class="glyphicon glyphicon-alert" style="font-size:125%"></span>
+      <b>ERROR:</b> Please provide a user name. The field cannot be empty
+      <button type="button" class="close" onclick="closeWarning('userNameMissingError')" style="font-size:180%">&times;</button>
+    </div>
+  </div>
+  <div id="invalidRowCountError" style="cursor:help; display:none" class="panel panel-danger" title="Number of rows to limit must not contain commas, etc">
+    <div class="panel-heading">
+      <span class="glyphicon glyphicon-alert" style="font-size:125%"></span>
+      <b>ERROR:</b> <span id="errValPosition" style="font-weight:bold;font-family: Courier,monospace;">[autoLimitValue]</span> is not a number. Please fill in a valid number.
+      <button type="button" class="close" onclick="closeWarning('invalidRowCountError')" style="font-size:180%">&times;</button>
+    </div>
+  </div>
   <script>
     ace.require("ace/ext/language_tools");
     var editor = ace.edit("query-editor-format");
@@ -127,8 +141,14 @@
             .addEventListener('keydown', function(e) {
       if (!(e.keyCode == 13 && (e.metaKey || e.ctrlKey))) return;
       if (e.target.form) //Submit [Wrapped] Query 
-        <#if model.isOnlyImpersonationEnabled()>doSubmitQueryWithUserName()<#else>wrapAndSubmitQuery()</#if>;
+        <#if model.isOnlyImpersonationEnabled()>doSubmitQueryWithUserName()<#else>doSubmitQueryWithAutoLimit()</#if>;
     });
+
+    //Close Warning
+    function closeWarning(warningElemId) {
+        document.getElementById(warningElemId).style.display="none";
+    }
+
   </script>
 </#macro>
 

@@ -41,19 +41,42 @@ function closePopup() {
 
 // Wrap & Submit Query (invoked if impersonation is enabled to check for username)
 function doSubmitQueryWithUserName() {
+    closeWarning('userNameMissingError');
     userName = document.getElementById("userName").value;
     if (!userName.trim()) {
-        alert("Please fill in User Name field");
+        let usernameErrorElem = document.getElementById("userNameMissingError");
+        usernameErrorElem.style.display="block";
+        if (document.getElementById("rerunButton").length == 0) {
+          usernameErrorElem.scrollIntoView(); //Scroll if [/query] page
+        }
         return;
     }
     //Wrap and Submit query
-    wrapAndSubmitQuery();
+    doSubmitQueryWithAutoLimit();
 }
 
-//Wrap & Submit Query (invoked directly if impersonation is not enabled)
-function wrapAndSubmitQuery() {
+//Perform autoLimit check before submitting (invoked directly if impersonation is not enabled)
+function doSubmitQueryWithAutoLimit() {
+    closeWarning('invalidRowCountError');
     //Wrap if required
-    wrapQuery();
+    var mustWrapWithLimit = $('input[name="forceLimit"]:checked').length > 0;
+    //Clear field when submitting if not mustWrapWithLimit
+    if (!mustWrapWithLimit) {
+      //Wipe out any numeric entry in the field before
+      $('#autoLimit').attr('value', '');
+    } else {
+      let autoLimitValue=document.getElementById("autoLimit").value;
+      if (isNaN(autoLimitValue)) {
+        let limitNaNErrorElem = document.getElementById("invalidRowCountError");
+        let errorValuePlaceHolder = $('errValPosition');
+        errValPosition.innerHTML = autoLimitValue.trim();
+        limitNaNErrorElem.style.display="block";
+        if (document.getElementById("rerunButton").length == 0) {
+          limitNaNErrorElem.scrollIntoView(); //Scroll if [/query] page
+        }
+        return;
+      }
+    }
     //Submit query
     submitQuery();
 }
@@ -82,26 +105,4 @@ function submitQuery() {
             alert(errorThrown);
         }
     });
-}
-
-//Wraps a query with Limit by directly changing the query in the hidden textbox in the UI (see /query.ftl)
-function wrapQuery() {
-    var origQueryText = $('#query').attr('value');
-    //dBug: console.log("Query Input:" + origQueryText);
-    var mustWrapWithLimit = $('input[name="forceLimit"]:checked').length > 0;
-    if (mustWrapWithLimit) {
-        var semicolonIdx = origQueryText.lastIndexOf(';');
-        //Check and eliminate trailing semicolon
-        if (semicolonIdx  == origQueryText.length-1 ) {
-          origQueryText = origQueryText.substring(0, semicolonIdx)
-        }
-        var qLimit = $('#queryLimit').val();
-        var wrappedQuery = "-- [autoLimit: " + qLimit + " rows]\nselect * from (\n" + origQueryText + "\n) limit " + qLimit;
-        //dBug: console.log("Query Output:" + wrappedQuery);
-        //Wrapping Query
-        $('#query').attr('value', wrappedQuery);
-    } else {
-        //Do not change the query
-        //dBug: console.log("Query Output:" + origQueryText);
-    }
 }
