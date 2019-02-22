@@ -15,13 +15,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.drill.exec.store.sys;
+package org.apache.drill.exec.resourcemgr.rmblobmgr.rmblob;
 
-/**
- * Defines operation mode of a {@link PersistentStore} instance.
- */
-public enum PersistentStoreMode {
-  PERSISTENT,
-  BLOB_PERSISTENT,
-  PERSISTENT_TRANSACTION
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property="type")
+public interface RMStateBlob {
+
+  int getVersion();
 }

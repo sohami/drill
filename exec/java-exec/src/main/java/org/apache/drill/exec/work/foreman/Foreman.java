@@ -249,35 +249,44 @@ public class Foreman implements Runnable {
     }
 
     queryText = queryRequest.getPlan();
-    queryStateProcessor.moveToState(QueryState.PLANNING, null);
 
     try {
       injector.injectChecked(queryContext.getExecutionControls(), "run-try-beginning", ForemanException.class);
+      switch (getState()) {
+        case PREPARING:
+          queryStateProcessor.moveToState(QueryState.PLANNING, null);
+          // convert a run query request into action
+          switch (queryRequest.getType()) {
+            case LOGICAL:
+              parseAndRunLogicalPlan(queryRequest.getPlan());
+              break;
+            case PHYSICAL:
+              parseAndRunPhysicalPlan(queryRequest.getPlan());
+              break;
+            case SQL:
+              final String sql = queryRequest.getPlan();
+              // log query id, username and query text before starting any real work. Also, put
+              // them together such that it is easy to search based on query id
+              logger.info("Query text for query with id {} issued by {}: {}", queryIdString,
+                queryContext.getQueryUserName(), sql);
+              runSQL(sql);
+              break;
+            case EXECUTION:
+              runFragment(queryRequest.getFragmentsList());
+              break;
+            case PREPARED_STATEMENT:
+              runPreparedStatement(queryRequest.getPreparedStatementHandle());
+              break;
+            default:
+              throw new IllegalStateException();
+          }
+          break;
 
-      // convert a run query request into action
-      switch (queryRequest.getType()) {
-      case LOGICAL:
-        parseAndRunLogicalPlan(queryRequest.getPlan());
-        break;
-      case PHYSICAL:
-        parseAndRunPhysicalPlan(queryRequest.getPlan());
-        break;
-      case SQL:
-        final String sql = queryRequest.getPlan();
-        // log query id, username and query text before starting any real work. Also, put
-        // them together such that it is easy to search based on query id
-        logger.info("Query text for query with id {} issued by {}: {}", queryIdString,
-            queryContext.getQueryUserName(), sql);
-        runSQL(sql);
-        break;
-      case EXECUTION:
-        runFragment(queryRequest.getFragmentsList());
-        break;
-      case PREPARED_STATEMENT:
-        runPreparedStatement(queryRequest.getPreparedStatementHandle());
-        break;
-      default:
-        throw new IllegalStateException();
+        case ENQUEUED:
+          break;
+        default:
+          throw new IllegalStateException(String.format("Foreman object is not expected to be in this state %s inside " +
+            "run method", getState()));
       }
       injector.injectChecked(queryContext.getExecutionControls(), "run-try-end", ForemanException.class);
     } catch (final ForemanException e) {
@@ -296,7 +305,7 @@ public class Foreman implements Runnable {
 
     } catch (AssertionError | Exception ex) {
       queryStateProcessor.moveToState(QueryState.FAILED,
-          new ForemanException("Unexpected exception during fragment initialization: " + ex.getMessage(), ex));
+        new ForemanException("Unexpected exception during fragment initialization: " + ex.getMessage(), ex));
     } finally {
       // restore the thread's original name
       currentThread.setName(originalName);
@@ -304,8 +313,8 @@ public class Foreman implements Runnable {
 
     /*
      * Note that despite the run() completing, the Foreman continues to exist, and receives
-     * events (indirectly, through the QueryManager's use of stateListener), about fragment
-     * completions. It won't go away until everything is completed, failed, or cancelled.
+     * events about its enqueued successfully or not, (indirectly, through the QueryManager's use of stateListener),
+     * about fragment completions. It won't go away until everything is completed, failed, or cancelled.
      */
   }
 

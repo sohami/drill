@@ -15,13 +15,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.drill.exec.store.sys;
+package org.apache.drill.exec.resourcemgr.rmblobmgr.exception;
 
-/**
- * Defines operation mode of a {@link PersistentStore} instance.
- */
-public enum PersistentStoreMode {
-  PERSISTENT,
-  BLOB_PERSISTENT,
-  PERSISTENT_TRANSACTION
+public class LeaderChangeException extends Exception {
+  public LeaderChangeException(String message) {
+    super(message);
+  }
+
+  public LeaderChangeException(String message, Exception ex) {
+    super(message, ex);
+  }
 }
