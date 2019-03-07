@@ -106,6 +106,7 @@ public class ZookeeperPersistentStore<V> extends BasePersistentStore<V> implemen
     try {
       final byte[] bytes = serializer.serialize(value);
       client.put(key, bytes, version);
+      client.
     } catch (final IOException e) {
       throw new DrillRuntimeException(String.format("unable to de/serialize value of type %s", value.getClass()), e);
     }
