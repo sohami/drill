@@ -282,8 +282,8 @@ public class Foreman implements Runnable {
           }
           break;
 
+          // TODO: Handle this state transition
         case ENQUEUED:
-          break;
         default:
           throw new IllegalStateException(String.format("Foreman object is not expected to be in this state %s inside " +
             "run method", getState()));
@@ -482,6 +482,8 @@ public class Foreman implements Runnable {
    */
   private void startQueryProcessing() {
     enqueue();
+    // move query into the running map
+
     runFragments();
     queryStateProcessor.moveToState(QueryState.RUNNING, null);
   }
