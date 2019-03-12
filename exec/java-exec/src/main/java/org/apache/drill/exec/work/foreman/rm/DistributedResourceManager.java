@@ -20,12 +20,15 @@ package org.apache.drill.exec.work.foreman.rm;
 import org.apache.drill.common.config.DrillConfig;
 import org.apache.drill.common.exceptions.DrillRuntimeException;
 import org.apache.drill.exec.ExecConstants;
+import org.apache.drill.exec.exception.StoreException;
 import org.apache.drill.exec.ops.QueryContext;
 import org.apache.drill.exec.planner.fragment.QueryParallelizer;
 import org.apache.drill.exec.planner.fragment.DistributedQueueParallelizer;
 import org.apache.drill.exec.resourcemgr.config.ResourcePoolTree;
 import org.apache.drill.exec.resourcemgr.config.ResourcePoolTreeImpl;
 import org.apache.drill.exec.resourcemgr.config.exception.RMConfigException;
+import org.apache.drill.exec.resourcemgr.rmblobmgr.RMBlobStoreManager;
+import org.apache.drill.exec.resourcemgr.rmblobmgr.RMConsistentBlobStoreManager;
 import org.apache.drill.exec.server.DrillbitContext;
 import org.apache.drill.exec.work.foreman.Foreman;
 
@@ -40,6 +43,8 @@ public class DistributedResourceManager implements ResourceManager {
   public final long memoryPerNode;
   public final int cpusPerNode;
 
+  private final RMBlobStoreManager rmBlobStoreManager;
+
   public DistributedResourceManager(DrillbitContext context) throws DrillRuntimeException {
     memoryPerNode = DrillConfig.getMaxDirectMemory();
     cpusPerNode = Runtime.getRuntime().availableProcessors();
@@ -49,11 +54,15 @@ public class DistributedResourceManager implements ResourceManager {
       rmPoolTree = new ResourcePoolTreeImpl(rmConfig, DrillConfig.getMaxDirectMemory(),
         Runtime.getRuntime().availableProcessors(), 1);
       logger.debug("Successfully parsed RM config \n{}", rmConfig.getConfig(ResourcePoolTreeImpl.ROOT_POOL_CONFIG_KEY));
+      this.rmBlobStoreManager = new RMConsistentBlobStoreManager(context, rmPoolTree.getAllLeafQueues().values());
     } catch (RMConfigException ex) {
       throw new DrillRuntimeException(String.format("Failed while parsing Drill RM Configs. Drillbit won't be started" +
         " unless config is fixed or RM is disabled by setting %s to false", ExecConstants.RM_ENABLED), ex);
+    } catch (StoreException ex) {
+      throw new DrillRuntimeException("Failed while creating the blob store manager for managing RM state blobs", ex);
     }
   }
+
   @Override
   public long memoryPerNode() {
     return memoryPerNode;

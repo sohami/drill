@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.apache.curator.framework.recipes.locks.InterProcessMutex;
 import org.apache.drill.common.scanner.persistence.ScanResult;
 import org.apache.drill.exec.coord.zk.ZKClusterCoordinator;
+import org.apache.drill.exec.exception.StoreException;
 import org.apache.drill.exec.resourcemgr.NodeResources;
 import org.apache.drill.exec.resourcemgr.NodeResources.NodeResourcesDe;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
@@ -82,18 +83,25 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
 
   private final StringBuilder exceptionStringBuilder = new StringBuilder();
 
-  public RMConsistentBlobStoreManager(DrillbitContext context, List<QueryQueueConfig> leafQueues) throws Exception {
-    this.context = context;
-    this.serDeMapper = initializeMapper(context.getClasspathScan());
-    this.rmBlobStore = (ZookeeperTransactionalPersistenceStore<RMStateBlob>) context.getStoreProvider()
-      .getOrCreateStore(PersistentStoreConfig.newJacksonBuilder(serDeMapper, RMStateBlob.class)
-        .name(RM_BLOBS_ROOT)
-        .persistWithTransaction()
-        .build());
-    this.globalBlobMutex = new InterProcessMutex(((ZKClusterCoordinator)context.getClusterCoordinator()).getCurator(),
-      RM_LOCK_ROOT + RM_BLOB_GLOBAL_LOCK_NAME);
-    this.rmStateBlobs = new HashMap<>();
-    initializeBlobs(leafQueues);
+  public RMConsistentBlobStoreManager(DrillbitContext context, Collection<QueryQueueConfig> leafQueues) throws
+    StoreException {
+    try {
+      this.context = context;
+      this.serDeMapper = initializeMapper(context.getClasspathScan());
+      this.rmBlobStore = (ZookeeperTransactionalPersistenceStore<RMStateBlob>) context.getStoreProvider()
+        .getOrCreateStore(PersistentStoreConfig.newJacksonBuilder(serDeMapper, RMStateBlob.class)
+          .name(RM_BLOBS_ROOT)
+          .persistWithTransaction()
+          .build());
+      this.globalBlobMutex = new InterProcessMutex(((ZKClusterCoordinator) context.getClusterCoordinator()).getCurator(),
+        RM_LOCK_ROOT + RM_BLOB_GLOBAL_LOCK_NAME);
+      this.rmStateBlobs = new HashMap<>();
+      initializeBlobs(leafQueues);
+    } catch (StoreException ex) {
+      throw ex;
+    } catch (Exception ex) {
+      throw new StoreException("Failed to initialize RM State Blobs", ex);
+    }
   }
 
   private Collection<Class<?>> getAllBlobSubTypes(ScanResult classpathScan) {
@@ -115,7 +123,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
     return mapper;
   }
 
-  private void initializeBlobs(List<QueryQueueConfig> leafQueues) throws Exception {
+  private void initializeBlobs(Collection<QueryQueueConfig> leafQueues) throws Exception {
     // acquire the global lock and ensure that all the blobs are created with empty data
     int acquireTry = 1;
     do {
@@ -158,7 +166,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
     } catch (Exception ex) {
       // consume the exception during blob initialization since we are expecting some other Drillbit can do that
       // successfully. If not then there will be failure in cluster during actual blob update
-      logger.info("Failed to initialize one or more blob with empty data, but consuming this exception since " +
+      logger.error("Failed to initialize one or more blob with empty data, but consuming this exception since " +
         "expectation is that some other Drillbit should be able to perform this step");
     } finally {
       // throwing exception on release since it indicates mutex is in bad state
