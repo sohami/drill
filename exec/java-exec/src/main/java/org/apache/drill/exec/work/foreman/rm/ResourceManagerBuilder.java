@@ -18,6 +18,7 @@
 package org.apache.drill.exec.work.foreman.rm;
 
 import org.apache.drill.common.config.DrillConfig;
+import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.coord.ClusterCoordinator;
 import org.apache.drill.exec.coord.local.LocalClusterCoordinator;
 import org.apache.drill.exec.server.DrillbitContext;
@@ -64,15 +65,15 @@ public class ResourceManagerBuilder {
     ClusterCoordinator coord = context.getClusterCoordinator();
     DrillConfig config = context.getConfig();
     if (coord instanceof LocalClusterCoordinator) {
-      if (config.getBoolean(EmbeddedQueryQueue.ENABLED)) {
-        logger.debug("Enabling embedded, local query queue.");
-        return new ThrottledResourceManager(context, new EmbeddedQueryQueue(context));
-      } else {
-        logger.debug("No query queueing enabled.");
-        return new DefaultResourceManager();
-      }
+      logger.info("Zookeeper is not configured as ClusterCoordinator hence using Default Manager. [Details: " +
+        "isRMEnabled: {}]", config.getBoolean(ExecConstants.RM_ENABLED));
+      return new DefaultResourceManager();
+    } else if (config.getBoolean(ExecConstants.RM_ENABLED)){
+      logger.info("RM is enabled in Drillbit config hence using Distributed Manager");
+      return new DistributedResourceManager(context);
     } else {
-      return new DynamicResourceManager(context);
+      logger.info("RM is disabled in Drillbit config hence using Default Manager");
+      return new DefaultResourceManager();
     }
   }
 }

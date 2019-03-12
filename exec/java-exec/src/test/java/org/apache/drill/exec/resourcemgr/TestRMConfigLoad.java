@@ -30,7 +30,6 @@ import org.apache.drill.test.BaseDirTestWatcher;
 import org.apache.drill.test.ClusterFixture;
 import org.apache.drill.test.ClusterFixtureBuilder;
 import org.apache.drill.test.DrillTest;
-import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -38,7 +37,7 @@ import org.junit.experimental.categories.Category;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-@Ignore("These tests will be ignored until integration with new DistributedResourceManager is done")
+//@Ignore("These tests will be ignored until integration with new DistributedResourceManager is done")
 @Category(ResourceManagerTest.class)
 public final class TestRMConfigLoad extends DrillTest {
 
