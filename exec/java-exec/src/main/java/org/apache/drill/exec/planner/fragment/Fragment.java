@@ -21,9 +21,9 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-import org.apache.drill.exec.physical.base.AbstractPhysicalVisitor;
 import org.apache.drill.exec.physical.base.Exchange;
 import org.apache.drill.exec.physical.base.PhysicalOperator;
+import org.apache.drill.exec.util.memory.ZKQueueMemoryAllocationUtilities;
 import org.apache.drill.exec.work.foreman.ForemanSetupException;
 
 import org.apache.drill.shaded.guava.com.google.common.collect.Lists;
@@ -167,20 +167,8 @@ public class Fragment implements Iterable<Fragment.ExchangeFragmentPair> {
 
   public List<PhysicalOperator> getBufferedOperators() {
     List<PhysicalOperator> bufferedOps = new ArrayList<>();
-    root.accept(new BufferedOpFinder(), bufferedOps);
+    root.accept(new ZKQueueMemoryAllocationUtilities.BufferedOpFinder(), bufferedOps);
     return bufferedOps;
-  }
-
-  protected static class BufferedOpFinder extends AbstractPhysicalVisitor<Void, List<PhysicalOperator>, RuntimeException> {
-    @Override
-    public Void visitOp(PhysicalOperator op, List<PhysicalOperator> value)
-      throws RuntimeException {
-      if (op.isBufferedOperator(null)) {
-        value.add(op);
-      }
-      visitChildren(op, value);
-      return null;
-    }
   }
 
   @Override
