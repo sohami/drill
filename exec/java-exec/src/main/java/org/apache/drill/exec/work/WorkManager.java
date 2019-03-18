@@ -287,7 +287,7 @@ public class WorkManager implements AutoCloseable {
       executor.execute(foreman);
     }
 
-    public void moveQueryToRunning(QueryId queryId) {
+    public void moveToRunningQueries(QueryId queryId) {
       try {
         queryMapAccess.lock();
         final Foreman foremanForQuery = waitingQueries.get(queryId);

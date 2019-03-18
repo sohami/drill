@@ -17,9 +17,6 @@
  */
 package org.apache.drill.exec.work.foreman;
 
-import org.apache.drill.exec.work.filter.RuntimeFilterRouter;
-import org.apache.drill.shaded.guava.com.google.common.base.Preconditions;
-import org.apache.drill.shaded.guava.com.google.common.collect.Lists;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.netty.channel.ChannelFuture;
 import io.netty.util.concurrent.Future;
@@ -61,9 +58,12 @@ import org.apache.drill.exec.testing.ControlsInjectorFactory;
 import org.apache.drill.exec.util.Pointer;
 import org.apache.drill.exec.work.QueryWorkUnit;
 import org.apache.drill.exec.work.WorkManager.WorkerBee;
+import org.apache.drill.exec.work.filter.RuntimeFilterRouter;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueueTimeoutException;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueryQueueException;
 import org.apache.drill.exec.work.foreman.rm.QueryResourceManager;
+import org.apache.drill.shaded.guava.com.google.common.base.Preconditions;
+import org.apache.drill.shaded.guava.com.google.common.collect.Lists;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.IOException;
@@ -281,9 +281,12 @@ public class Foreman implements Runnable {
               throw new IllegalStateException();
           }
           break;
-
-          // TODO: Handle this state transition
         case ENQUEUED:
+          startAdmittedQuery();
+          break;
+        case STARTING:
+          reserveAndRunFragments();
+          break;
         default:
           throw new IllegalStateException(String.format("Foreman object is not expected to be in this state %s inside " +
             "run method", getState()));
@@ -481,11 +484,36 @@ public class Foreman implements Runnable {
    * Moves query to RUNNING state.
    */
   private void startQueryProcessing() {
-    enqueue();
-    // move query into the running map
+    if (!enqueue()) {
+      // Since enqueue is async call based on response from scheduler the query will be in wait, execute or fail state
+      return;
+    }
+    startAdmittedQuery();
+  }
 
-    runFragments();
-    queryStateProcessor.moveToState(QueryState.RUNNING, null);
+  private void startAdmittedQuery() {
+    // move query into the running map
+    fragmentsRunner.getBee().moveToRunningQueries(queryId);
+    queryRM.updateState(QueryResourceManager.QueryRMState.ADMITTED);
+    queryStateProcessor.moveToState(QueryState.STARTING, null);
+    reserveAndRunFragments();
+  }
+
+  private void reserveAndRunFragments() {
+    // Now try to reserve the resources required by this query
+    try {
+      // TODO: pass parameters for reserveResources
+      if (!queryRM.reserveResources(null, queryId)) {
+        // query is added to RM waiting queue
+        // TODO: Add the queue name
+        logger.info("Query {} is added to the RM waiting queue of rm pool {} since it was not able to reserve " +
+            "required resources", queryId);
+        return;
+      }
+      runFragments();
+    } catch (Exception ex) {
+      queryStateProcessor.moveToState(QueryState.FAILED, ex);
+    }
   }
 
   /**
@@ -493,14 +521,16 @@ public class Foreman implements Runnable {
    * Foreman run will be blocked until query is enqueued.
    * In case of failures (ex: queue timeout exception) will move query to FAILED state.
    */
-  private void enqueue() {
+  private boolean enqueue() {
     queryStateProcessor.moveToState(QueryState.ENQUEUED, null);
-
     try {
-      queryRM.admit();
-      queryStateProcessor.moveToState(QueryState.STARTING, null);
+      if (queryRM.admit() == QueryResourceManager.QueryAdmitResponse.WAIT_FOR_RESPONSE) {
+        return false;
+      }
+      return true;
     } catch (QueueTimeoutException | QueryQueueException e) {
       queryStateProcessor.moveToState(QueryState.FAILED, e);
+      return false;
     } finally {
       String queueName = queryRM.queueName();
       queryManager.setQueueName(queueName == null ? "Unknown" : queueName);
@@ -532,6 +562,7 @@ public class Foreman implements Runnable {
        */
       startProcessingEvents();
     }
+    queryStateProcessor.moveToState(QueryState.RUNNING, null);
   }
 
   /**

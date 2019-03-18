@@ -247,7 +247,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
 
       final long memoryToReserve = bitResourcesToReserve.getMemoryInBytes();
       if (!currentClusterState.containsKey(bitUUID)) {
-        throw new ResourceUnavailableException(String.format("Drillbit with UUID %s which is assigned to query is " +
+        throw new RMBlobUpdateException(String.format("Drillbit with UUID %s which is assigned to query is " +
           "not found in ClusterState blob. [Details: %s]", bitUUID, exceptionStringBuilder.toString()));
       }
       final NodeResources bitAvailableResources = currentClusterState.get(bitUUID);
