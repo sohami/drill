@@ -27,6 +27,8 @@ import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.exception.QueueSelectionException;
 import org.apache.drill.exec.work.foreman.Foreman;
 
+import java.util.Map;
+
 /**
  * Represents a default resource manager for clusters that do not provide query
  * queues. Without queues to provide a hard limit on the query admission rate,
@@ -48,6 +50,11 @@ public class DefaultResourceManager implements ResourceManager {
     @Override
     public void setCost(double cost) {
       // Nothing to do by default.
+    }
+
+    @Override
+    public void setCost(Map<String, NodeResources> costOnAssignedEndpoints) {
+      // Nothing to do by default
     }
 
     @Override

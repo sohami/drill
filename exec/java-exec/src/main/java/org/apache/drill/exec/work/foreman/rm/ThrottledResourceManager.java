@@ -30,6 +30,8 @@ import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueryQueueException;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueueLease;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueueTimeoutException;
 
+import java.util.Map;
+
 /**
  * Global resource manager that provides basic admission control (AC) via a
  * configured queue: either the Zookeeper-based distributed queue or the
@@ -77,6 +79,12 @@ public class ThrottledResourceManager extends AbstractResourceManager {
     @Override
     public void setCost(double cost) {
       this.queryCost = cost;
+    }
+
+    @Override
+    public void setCost(Map<String, NodeResources> costOnAssignedEndpoints) {
+      throw new UnsupportedOperationException("QueuedQueryResourceManager doesn't use this implementation for setting" +
+        " cost");
     }
 
     @Override

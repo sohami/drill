@@ -40,6 +40,7 @@ import org.apache.drill.exec.server.DrillbitContext;
 import org.apache.drill.exec.work.foreman.Foreman;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueryQueueException;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueueTimeoutException;
+import org.apache.drill.shaded.guava.com.google.common.base.Preconditions;
 import org.apache.drill.shaded.guava.com.google.common.base.Stopwatch;
 
 import java.util.Collection;
@@ -177,6 +178,8 @@ public class DistributedResourceManager implements ResourceManager {
 
     private Stopwatch waitStartTime;
 
+    private Map<String, NodeResources> assignedEndpointsCost;
+
     DistributedQueryRM(ResourceManager resourceManager, Foreman queryForeman) {
       this.drillRM = (DistributedResourceManager) resourceManager;
       this.context = queryForeman.getQueryContext();
@@ -191,6 +194,14 @@ public class DistributedResourceManager implements ResourceManager {
 
     @Override
     public void setCost(double cost) {
+      throw new UnsupportedOperationException("DistributedQueryRM doesn't support cost in double format");
+    }
+
+    public void setCost(Map<String, NodeResources> costOnAssignedEndpoints) {
+      // Should be called when queryRM is in STARTED state
+      Preconditions.checkState(currentState == QueryRMState.STARTED,
+        "Cost is being set when queryRM is in %s state", currentState.toString());
+      assignedEndpointsCost = costOnAssignedEndpoints;
     }
 
     public long queryMemoryPerNode() {
@@ -236,6 +247,8 @@ public class DistributedResourceManager implements ResourceManager {
 
     public boolean reserveResources(QueryQueueConfig selectedQueue, UserBitShared.QueryId queryId) throws Exception {
       try {
+        Preconditions.checkState(assignedEndpointsCost != null,
+          "Cost of the query is not set before calling reserve resources");
         // TODO: pass the correct parameter values to function below
         drillRM.reserveResources(null, null, null, null, null);
         updateState(QueryRMState.RESERVED_RESOURCES);

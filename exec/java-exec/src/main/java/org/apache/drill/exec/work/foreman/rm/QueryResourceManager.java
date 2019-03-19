@@ -25,6 +25,8 @@ import org.apache.drill.exec.resourcemgr.config.exception.QueueSelectionExceptio
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueryQueueException;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueueTimeoutException;
 
+import java.util.Map;
+
 /**
  * Extends a {@link QueryResourceAllocator} to provide queueing support.
  */
@@ -74,6 +76,7 @@ public interface QueryResourceManager {
 
   void setCost(double cost);
 
+  void setCost(Map<String, NodeResources> costOnAssignedEndpoints);
   /**
    * Create a parallelizer to parallelize each major fragment of the query into
    * many minor fragments. The parallelizer encapsulates the logic of how much
