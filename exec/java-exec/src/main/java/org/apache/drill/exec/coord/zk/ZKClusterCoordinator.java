@@ -17,29 +17,11 @@
  */
 package org.apache.drill.exec.coord.zk;
 
-<<<<<<< HEAD
-import static org.apache.drill.shaded.guava.com.google.common.collect.Collections2.transform;
-import java.io.IOException;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.ArrayList;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import org.apache.curator.framework.imps.DefaultACLProvider;
-import org.apache.drill.shaded.guava.com.google.common.base.Throwables;
-import org.apache.commons.collections.keyvalue.MultiKey;
-=======
->>>>>>> UUID support for DrillbitEndpoint
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.framework.api.ACLProvider;
+import org.apache.curator.framework.imps.DefaultACLProvider;
 import org.apache.curator.framework.state.ConnectionState;
 import org.apache.curator.framework.state.ConnectionStateListener;
 import org.apache.curator.retry.RetryNTimes;
@@ -58,13 +40,8 @@ import org.apache.drill.exec.coord.store.CachingTransientStoreFactory;
 import org.apache.drill.exec.coord.store.TransientStore;
 import org.apache.drill.exec.coord.store.TransientStoreConfig;
 import org.apache.drill.exec.coord.store.TransientStoreFactory;
-import org.apache.drill.exec.exception.DrillbitStartupException;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint.State;
-<<<<<<< HEAD
-import org.apache.drill.shaded.guava.com.google.common.base.Function;
-=======
-import org.apache.drill.exec.server.BootStrapContext;
 import org.apache.drill.shaded.guava.com.google.common.base.Throwables;
 
 import java.io.IOException;
@@ -80,7 +57,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
->>>>>>> UUID support for DrillbitEndpoint
 
 /**
  * Manages cluster coordination utilizing zookeeper. *
