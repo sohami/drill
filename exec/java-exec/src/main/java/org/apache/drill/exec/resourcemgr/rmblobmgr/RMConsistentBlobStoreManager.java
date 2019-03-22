@@ -177,7 +177,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
   @Override
   public void reserveResources(Map<String, NodeResources> queryResourceAssignment,
                                QueryQueueConfig selectedQueue, String leaderId,
-                               String queryId, String foremanNode) throws Exception {
+                               String queryId, String foremanUUID) throws Exception {
     // Looks like leader hasn't changed yet so let's try to reserve the resources
     // See if the call is to reserve or free up resources
     Map<String, NodeResources> resourcesMap = queryResourceAssignment;
@@ -186,21 +186,22 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
         (x) -> new NodeResources(x.getValue().getVersion(),
                                  -x.getValue().getMemoryInBytes(),
                                  -x.getValue().getNumVirtualCpu())));
-    acquireLockAndUpdate(resourcesMap, selectedQueue, leaderId, queryId, foremanNode);
+    acquireLockAndUpdate(resourcesMap, selectedQueue, leaderId, queryId, foremanUUID, false);
   }
 
   @Override
-  public void freeResources(Map<String, NodeResources> queryResourceAssignment,
+  public String freeResources(Map<String, NodeResources> queryResourceAssignment,
                             QueryQueueConfig selectedQueue, String leaderId,
-                            String queryId, String foremanNode) throws Exception {
-    acquireLockAndUpdate(queryResourceAssignment, selectedQueue, leaderId, queryId, foremanNode);
+                            String queryId, String foremanUUID) throws Exception {
+    return acquireLockAndUpdate(queryResourceAssignment, selectedQueue, leaderId, queryId, foremanUUID, true);
   }
 
-  private void updateBlobs(Map<String, NodeResources> resourcesMap, QueryQueueConfig selectedQueue,
-                           String leaderId, String queryId, String foremanNode) throws Exception {
+  private String updateBlobs(Map<String, NodeResources> resourcesMap, QueryQueueConfig selectedQueue,
+                           String leaderId, String queryId, String foremanUUID, boolean ignoreBitAndLeaderChange)
+    throws Exception {
 
     exceptionStringBuilder.append("QueryId: ").append(queryId)
-      .append(", ForemanBit: ").append(foremanNode)
+      .append(", ForemanBit: ").append(foremanUUID)
       .append(", QueueName: ").append(selectedQueue.getQueueName())
       .append(", Admitted Leader: ").append(leaderId);
 
@@ -221,11 +222,30 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
     }
 
     // Check if the leader admitting the query is still leader of the queue
-    final String currentQueueLeader = ((QueueLeadershipBlob)rmStateBlobs.get(QueueLeadershipBlob.NAME))
+    String currentQueueLeader = ((QueueLeadershipBlob)rmStateBlobs.get(QueueLeadershipBlob.NAME))
       .getQueueLeaders().get(selectedQueue.getQueueName());
-    if (currentQueueLeader == null || !currentQueueLeader.equals(leaderId)) {
-      throw new LeaderChangeException(String.format("The leader which admitted the query in queue doesn't match " +
-        "current leader %s of the queue [Details: %s]", currentQueueLeader, exceptionStringBuilder.toString()));
+
+    String logString;
+    // usually can happen if the queueLeaderShip blob is not initialized
+    if (currentQueueLeader == null) {
+      logString = String.format("There is no leader information about the queue which admitted the query. " +
+        "[Details: %s]", exceptionStringBuilder.toString());
+      if (ignoreBitAndLeaderChange) {
+        // should be here while freeing up resource so it's fine to use old leader while still updating the blobs
+        logger.info(logString);
+        logger.info("Using the old leader {}", leaderId);
+        currentQueueLeader = leaderId;
+      } else {
+        throw new LeaderChangeException(logString);
+      }
+    } else if (!currentQueueLeader.equals(leaderId)) {
+      logString = String.format("The leader which admitted the query in queue doesn't match current leader %s of the " +
+        "queue [Details: %s]", currentQueueLeader, exceptionStringBuilder.toString());
+      if (ignoreBitAndLeaderChange) {
+        logger.info(logString);
+      } else {
+        throw new LeaderChangeException(logString);
+      }
     }
     // Remove leadership blob from cache
     rmStateBlobs.remove(QueueLeadershipBlob.NAME);
@@ -237,7 +257,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
     // ForemanResourceUsage blob
     final ForemanQueueUsageBlob resourceUsageBlob = (ForemanQueueUsageBlob)rmStateBlobs.get(queueBlobName);
     final Map<String, ForemanResourceUsage> allForemanUsage = resourceUsageBlob.getAllForemanInfo();
-    final ForemanResourceUsage currentUsage = allForemanUsage.get(foremanNode);
+    final ForemanResourceUsage currentUsage = allForemanUsage.get(foremanUUID);
     final Map<String, NodeResources> usageMapAcrossDrillbits = currentUsage.getForemanUsage();
     int currentRunningCount = currentUsage.getRunningCount();
 
@@ -247,8 +267,13 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
 
       final long memoryToReserve = bitResourcesToReserve.getMemoryInBytes();
       if (!currentClusterState.containsKey(bitUUID)) {
-        throw new RMBlobUpdateException(String.format("Drillbit with UUID %s which is assigned to query is " +
-          "not found in ClusterState blob. [Details: %s]", bitUUID, exceptionStringBuilder.toString()));
+        logString = String.format("Drillbit with UUID %s which is assigned to query is " +
+          "not found in ClusterState blob. [Details: %s]", bitUUID, exceptionStringBuilder.toString());
+        if (ignoreBitAndLeaderChange) {
+          logger.info(logString);
+        } else {
+          throw new RMBlobUpdateException(logString);
+        }
       }
       final NodeResources bitAvailableResources = currentClusterState.get(bitUUID);
       long currentAvailableMemory = bitAvailableResources.getMemoryInBytes();
@@ -274,7 +299,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
     // update the local ForemanQueueUsageBlob with final ForemanResourceUsage
     currentUsage.setRunningCount(currentRunningCount + 1);
     currentUsage.setForemanUsage(usageMapAcrossDrillbits);
-    allForemanUsage.put(foremanNode, currentUsage);
+    allForemanUsage.put(foremanUUID, currentUsage);
     resourceUsageBlob.setAllForemanInfo(allForemanUsage);
 
     // Update local blob cache
@@ -292,10 +317,14 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
 
     // Reset the exceptionStringBuilder for next event
     exceptionStringBuilder.delete(0, exceptionStringBuilder.length());
+
+    return currentQueueLeader;
   }
 
-  private void acquireLockAndUpdate(Map<String, NodeResources> queryResourceAssignment, QueryQueueConfig selectedQueue,
-                                   String leaderId, String queryId, String foremanNode) throws Exception {
+  private String acquireLockAndUpdate(Map<String, NodeResources> queryResourceAssignment,
+                                      QueryQueueConfig selectedQueue, String leaderId,
+                                      String queryId, String foremanUUID, boolean ignoreBitAndLeaderChange)
+    throws Exception {
     try {
       globalBlobMutex.acquire();
     } catch (Exception ex) {
@@ -304,7 +333,8 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
     }
 
     try {
-      updateBlobs(queryResourceAssignment, selectedQueue, leaderId, queryId, foremanNode);
+      return updateBlobs(queryResourceAssignment, selectedQueue, leaderId, queryId,
+        foremanUUID, ignoreBitAndLeaderChange);
     } catch (Exception ex) {
       logger.error("Failed to update the blobs", ex);
       throw ex;

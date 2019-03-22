@@ -29,12 +29,12 @@ import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.exception.QueueSelectionException;
 import org.apache.drill.exec.work.foreman.rm.QueryResourceManager;
 
-import java.util.Map;
-import java.util.HashMap;
-import java.util.Collection;
-import java.util.Set;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
@@ -112,7 +112,7 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
       }));
     }
 
-    QueryQueueConfig queueConfig = null;
+    final QueryQueueConfig queueConfig;
     try {
       queueConfig = this.rm.selectQueue(max(totalNodeResources.values()));
     } catch (QueueSelectionException exception) {
