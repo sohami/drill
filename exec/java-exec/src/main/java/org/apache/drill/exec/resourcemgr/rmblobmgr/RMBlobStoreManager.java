@@ -32,8 +32,8 @@ import java.util.Map;
  */
 public interface RMBlobStoreManager {
   void reserveResources(Map<String, NodeResources> queryResourceAssignment, QueryQueueConfig selectedQueue,
-                        String leaderId, String queryId, String foremanNode) throws Exception;
+                        String leaderId, String queryId, String foremanUUID) throws Exception;
 
-  void freeResources(Map<String, NodeResources> queryResourceAssignment, QueryQueueConfig selectedQueue,
-                     String leaderId, String queryId, String foremanNode) throws Exception;
+  String freeResources(Map<String, NodeResources> queryResourceAssignment, QueryQueueConfig selectedQueue,
+                     String leaderId, String queryId, String foremanUUID) throws Exception;
 }
