@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.util.DrillStringUtils;
@@ -40,6 +41,7 @@ import org.apache.drill.exec.physical.base.Receiver;
 import org.apache.drill.exec.planner.PhysicalPlanReader;
 import org.apache.drill.exec.planner.fragment.Fragment.ExchangeFragmentPair;
 import org.apache.drill.exec.planner.fragment.Materializer.IndexedFragmentNode;
+import org.apache.drill.exec.planner.fragment.common.DrillNode;
 import org.apache.drill.exec.proto.BitControl.Collector;
 import org.apache.drill.exec.proto.BitControl.PlanFragment;
 import org.apache.drill.exec.proto.BitControl.QueryContextInformation;
@@ -296,6 +298,7 @@ public abstract class SimpleParallelizer implements QueryParallelizer {
                                            Fragment rootNode, PlanningSet planningSet, UserSession session,
                                            QueryContextInformation queryContextInfo, Map<DrillbitEndpoint, String> onlineEndpoints) throws ExecutionSetupException {
     List<MinorFragmentDefn> fragmentDefns = new ArrayList<>( );
+    Map<DrillNode, String> nodeMap = onlineEndpoints.entrySet().stream().collect(Collectors.toMap(entry -> DrillNode.create(entry.getKey()), entry -> entry.getValue()));
 
     MinorFragmentDefn rootFragmentDefn = null;
     FragmentRoot rootOperator = null;
@@ -331,7 +334,7 @@ public abstract class SimpleParallelizer implements QueryParallelizer {
             .build();
 
         DrillbitEndpoint endpoint = wrapper.getAssignedEndpoint(minorFragmentId);
-        String endpointUUID =  onlineEndpoints.get(endpoint);
+        String endpointUUID =  nodeMap.get(DrillNode.create(endpoint));
         PlanFragment fragment = PlanFragment.newBuilder()
             .setForeman(foremanNode)
             .setHandle(handle)
