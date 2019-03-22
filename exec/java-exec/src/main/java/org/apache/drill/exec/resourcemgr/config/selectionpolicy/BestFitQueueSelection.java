@@ -85,7 +85,7 @@ public class BestFitQueueSelection extends AbstractQueueSelectionPolicy {
         break;
       }
     }
-    logger.debug("Selected pool {} based on {} policy for query {}", selectedPool.getPoolName(),
+    logger.info("Selected pool {} based on {} policy for query {}", selectedPool.getPoolName(),
       getSelectionPolicy().toString(),
       queryContext.getQueryId());
     return selectedPool;

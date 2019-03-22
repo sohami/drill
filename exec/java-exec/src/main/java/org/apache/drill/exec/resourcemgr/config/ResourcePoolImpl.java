@@ -246,6 +246,11 @@ public class ResourcePoolImpl implements ResourcePool {
   }
 
   @Override
+  public NodeResources getPoolResourceShare() {
+    return poolResourcePerNode;
+  }
+
+  @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("{PoolName: ").append(poolName);

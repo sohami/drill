@@ -25,6 +25,7 @@ import org.apache.drill.exec.resourcemgr.config.ResourcePoolTree;
 import org.apache.drill.exec.resourcemgr.config.selectors.AclSelector;
 import org.apache.drill.exec.work.foreman.rm.DefaultResourceManager;
 import org.apache.drill.exec.work.foreman.rm.DistributedResourceManager;
+import org.apache.drill.exec.work.foreman.rm.DynamicResourceManager;
 import org.apache.drill.exec.work.foreman.rm.ResourceManager;
 import org.apache.drill.test.BaseDirTestWatcher;
 import org.apache.drill.test.ClusterFixture;
@@ -51,7 +52,7 @@ public final class TestRMConfigLoad extends DrillTest {
       .configProperty(ExecConstants.DRILL_PORT_HUNT, true)
       .withLocalZk();
 
-    try (ClusterFixture cluster = fixtureBuilder.build()) {
+    try(ClusterFixture cluster = fixtureBuilder.build()) {
       ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
       assertTrue(resourceManager instanceof DistributedResourceManager);
 
@@ -110,7 +111,7 @@ public final class TestRMConfigLoad extends DrillTest {
 
     try (ClusterFixture cluster = fixtureBuilder.build()) {
       ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
-      assertTrue(resourceManager instanceof DefaultResourceManager);
+      assertTrue(resourceManager instanceof DynamicResourceManager);
     }
   }
 }
