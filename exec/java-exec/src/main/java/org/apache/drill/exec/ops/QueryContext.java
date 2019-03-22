@@ -17,10 +17,7 @@
  */
 package org.apache.drill.exec.ops;
 
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-
+import io.netty.buffer.DrillBuf;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.drill.common.AutoCloseables;
 import org.apache.drill.common.config.DrillConfig;
@@ -50,12 +47,13 @@ import org.apache.drill.exec.store.SchemaTreeProvider;
 import org.apache.drill.exec.store.StoragePluginRegistry;
 import org.apache.drill.exec.testing.ExecutionControls;
 import org.apache.drill.exec.util.Utilities;
-
 import org.apache.drill.shaded.guava.com.google.common.base.Function;
 import org.apache.drill.shaded.guava.com.google.common.collect.Lists;
 import org.apache.drill.shaded.guava.com.google.common.collect.Maps;
 
-import io.netty.buffer.DrillBuf;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
 
 // TODO - consider re-name to PlanningContext, as the query execution context actually appears
 // in fragment contexts
@@ -88,6 +86,7 @@ public class QueryContext implements AutoCloseable, OptimizerRulesContext, Schem
    */
   private boolean closed = false;
   private DrillOperatorTable table;
+  private Map<DrillbitEndpoint, String> onlineEndpointsUUID;
 
   public QueryContext(final UserSession session, final DrillbitContext drillbitContext, QueryId queryId) {
     this.drillbitContext = drillbitContext;
@@ -225,8 +224,15 @@ public class QueryContext implements AutoCloseable, OptimizerRulesContext, Schem
     return drillbitContext.getBits();
   }
 
+  /**
+   * TODO: Change it to use {@link org.apache.drill.exec.planner.fragment.common.DrillNode} instead of DrillbitEndpoint
+   * @return map of endpoint to UUIDs
+   */
   public Map<DrillbitEndpoint, String> getOnlineEndpointUUIDs() {
-    return drillbitContext.getOnlineEndpointUUIDs();
+    if (onlineEndpointsUUID == null) {
+      onlineEndpointsUUID = drillbitContext.getOnlineEndpointUUIDs();
+    }
+    return onlineEndpointsUUID;
   }
 
   public DrillConfig getConfig() {
