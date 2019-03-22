@@ -25,7 +25,9 @@ import org.apache.drill.exec.resourcemgr.config.ResourcePoolTree;
 import org.apache.drill.exec.resourcemgr.config.selectors.AclSelector;
 import org.apache.drill.exec.work.foreman.rm.DefaultResourceManager;
 import org.apache.drill.exec.work.foreman.rm.DistributedResourceManager;
+import org.apache.drill.exec.work.foreman.rm.DynamicResourceManager;
 import org.apache.drill.exec.work.foreman.rm.ResourceManager;
+import org.apache.drill.exec.work.foreman.rm.ThrottledResourceManager;
 import org.apache.drill.test.BaseDirTestWatcher;
 import org.apache.drill.test.ClusterFixture;
 import org.apache.drill.test.ClusterFixtureBuilder;
@@ -50,9 +52,10 @@ public final class TestRMConfigLoad extends DrillTest {
     ClusterFixtureBuilder fixtureBuilder = ClusterFixture.builder(dirTestWatcher)
       .configProperty(ExecConstants.RM_ENABLED, true)
       .configProperty(ExecConstants.DRILL_PORT_HUNT, true)
+      .setOptionDefault(ExecConstants.ENABLE_QUEUE.getOptionName(), false)
       .withLocalZk();
 
-    try (ClusterFixture cluster = fixtureBuilder.build()) {
+    try(ClusterFixture cluster = fixtureBuilder.build()) {
       ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
       assertTrue(resourceManager instanceof DistributedResourceManager);
 
@@ -83,7 +86,8 @@ public final class TestRMConfigLoad extends DrillTest {
   @Test
   public void testDefaultRMWithLocalCoordinatorAndRMEnabled() throws Exception {
     ClusterFixtureBuilder fixtureBuilder = ClusterFixture.builder(dirTestWatcher)
-      .configProperty(ExecConstants.RM_ENABLED, true);
+      .configProperty(ExecConstants.RM_ENABLED, true)
+      .setOptionDefault(ExecConstants.ENABLE_QUEUE.getOptionName(), false);
 
     try (ClusterFixture cluster = fixtureBuilder.build()) {
       ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
@@ -94,7 +98,8 @@ public final class TestRMConfigLoad extends DrillTest {
   @Test
   public void testDefaultRMWithLocalCoordinatorAndRMDisabled() throws Exception {
     ClusterFixtureBuilder fixtureBuilder = ClusterFixture.builder(dirTestWatcher)
-      .configProperty(ExecConstants.RM_ENABLED, false);
+      .configProperty(ExecConstants.RM_ENABLED, false)
+      .setOptionDefault(ExecConstants.ENABLE_QUEUE.getOptionName(), false);
 
     try (ClusterFixture cluster = fixtureBuilder.build()) {
       ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
@@ -107,11 +112,28 @@ public final class TestRMConfigLoad extends DrillTest {
     ClusterFixtureBuilder fixtureBuilder = ClusterFixture.builder(dirTestWatcher)
       .configProperty(ExecConstants.RM_ENABLED, false)
       .configProperty(ExecConstants.DRILL_PORT_HUNT, true)
+      .setOptionDefault(ExecConstants.ENABLE_QUEUE.getOptionName(), false)
       .withLocalZk();
 
     try (ClusterFixture cluster = fixtureBuilder.build()) {
       ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
-      assertTrue(resourceManager instanceof DefaultResourceManager);
+      assertTrue(resourceManager instanceof DynamicResourceManager);
+      assertTrue(((DynamicResourceManager) resourceManager).activeRM() instanceof DefaultResourceManager);
+    }
+  }
+
+  @Test
+  public void testThrottleRMOnlyRMDisabled() throws Exception {
+    ClusterFixtureBuilder fixtureBuilder = ClusterFixture.builder(dirTestWatcher)
+      .configProperty(ExecConstants.RM_ENABLED, false)
+      .configProperty(ExecConstants.DRILL_PORT_HUNT, true)
+      .setOptionDefault(ExecConstants.ENABLE_QUEUE.getOptionName(), true)
+      .withLocalZk();
+
+    try (ClusterFixture cluster = fixtureBuilder.build()) {
+      ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
+      assertTrue(resourceManager instanceof DynamicResourceManager);
+      assertTrue(((DynamicResourceManager) resourceManager).activeRM() instanceof ThrottledResourceManager);
     }
   }
 }
