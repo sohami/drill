@@ -45,8 +45,7 @@ public class DrillNode {
            endpoint.getUserPort() == otherEndpoint.getUserPort() &&
            endpoint.getControlPort() == otherEndpoint.getControlPort() &&
            endpoint.getDataPort() == otherEndpoint.getDataPort() &&
-           endpoint.getVersion().equals(otherEndpoint.getVersion()) &&
-           endpoint.getHttpPort() == otherEndpoint.getHttpPort();
+           endpoint.getVersion().equals(otherEndpoint.getVersion());
   }
 
   @Override
@@ -72,10 +71,6 @@ public class DrillNode {
     if (endpoint.hasVersion()) {
       hash = (37 * hash) + endpoint.VERSION_FIELD_NUMBER;
       hash = (53 * hash) + endpoint.getVersion().hashCode();
-    }
-    if (endpoint.hasHttpPort()) {
-      hash = (37 * hash) + endpoint.HTTP_PORT_FIELD_NUMBER;
-      hash = (53 * hash) + endpoint.getHttpPort();
     }
     return hash;
   }

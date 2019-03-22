@@ -94,6 +94,14 @@ public class ResourcePoolTreeImpl implements ResourcePoolTree {
   }
 
   /**
+   * @return NodeResources which represents total node resource
+   */
+  @Override
+  public NodeResources getRootPoolResources() {
+    return rootPool.getPoolResourceShare();
+  }
+
+  /**
    * @return Map containing all the configured leaf queues
    */
   @Override
