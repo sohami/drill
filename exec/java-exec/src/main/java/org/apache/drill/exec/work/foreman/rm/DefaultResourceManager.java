@@ -81,7 +81,7 @@ public class DefaultResourceManager implements ResourceManager {
 
     @Override
     public void setCost(double cost) {
-      throw new UnsupportedOperationException("DefaultResourceManager doesn't support setting up cost");
+      // no-op
     }
 
     @Override

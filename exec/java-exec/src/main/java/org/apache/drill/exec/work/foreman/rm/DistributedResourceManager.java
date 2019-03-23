@@ -249,7 +249,7 @@ public class DistributedResourceManager implements ResourceManager {
       this.foreman = queryForeman;
       currentState = QueryRMState.STARTED;
       // TODO: Below get is broken since currentEndpoint and OnlineEndpoints have different entry for foreman node
-      foremanUUID = findUUIDUsingIpAndPort(queryContext);
+      foremanUUID = findUUIDUsingIpAndPort(queryContext.getOnlineEndpointUUIDs(), queryContext.getCurrentEndpoint());
     }
 
     @Override
@@ -308,7 +308,7 @@ public class DistributedResourceManager implements ResourceManager {
 
       selectedQueue = drillRM.rmPoolTree.selectOneQueue(queryContext, maxNodeResource);
       // TODO: Set the LeaderUUID based on the selected queue
-      //admittedLeaderUUID = foremanUUID;
+      admittedLeaderUUID = foremanUUID;
       currentQueueLeader = admittedLeaderUUID;
 
       return selectedQueue;
@@ -461,14 +461,13 @@ public class DistributedResourceManager implements ResourceManager {
 
     /**
      * TODO: Don't create the DrillNode map here everytime instead create it once in QueryContext and use that everytime
-     * @param queryContext
+     * @param
      * @return
      */
-    public static String findUUIDUsingIpAndPort(QueryContext queryContext) {
-      final Map<DrillbitEndpoint, String> endpointUUIDs = queryContext.getOnlineEndpointUUIDs();
+    public static String findUUIDUsingIpAndPort(Map<DrillbitEndpoint, String> endpointUUIDs, DrillbitEndpoint foreman) {
       Map<DrillNode, String> drillbitNodeUUIDs = endpointUUIDs.entrySet().stream().collect(Collectors.toMap(entry ->
         DrillNode.create(entry.getKey()), Map.Entry::getValue));
-      final DrillNode foremanNode = DrillNode.create(queryContext.getCurrentEndpoint());
+      final DrillNode foremanNode = DrillNode.create(foreman);
       return drillbitNodeUUIDs.get(foremanNode);
     }
   }
