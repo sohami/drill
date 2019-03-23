@@ -42,6 +42,7 @@ import org.apache.drill.exec.resourcemgr.rmblobmgr.rmblob.RMStateBlob;
 import org.apache.drill.exec.server.DrillbitContext;
 import org.apache.drill.exec.store.sys.PersistentStoreConfig;
 import org.apache.drill.exec.store.sys.store.ZookeeperTransactionalPersistenceStore;
+import org.apache.drill.exec.work.foreman.rm.DistributedResourceManager;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -148,8 +149,16 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
       // if here that means lock is acquired
       rmStateBlobs.put(ClusterStateBlob.NAME,
         new ClusterStateBlob(RM_STATE_BLOB_VERSION, new HashMap<>()));
-      rmStateBlobs.put(QueueLeadershipBlob.NAME,
-        new QueueLeadershipBlob(RM_STATE_BLOB_VERSION, new HashMap<>()));
+
+      // TODO: Temporary Change: for now initialize each leafQueue leader as foremanNodeUUID
+      final Map<String, String> queueLeaders = new HashMap<>();
+      for (QueryQueueConfig queueConfig : leafQueues) {
+        queueLeaders.put(queueConfig.getQueueName(),
+          DistributedResourceManager.DistributedQueryRM.findUUIDUsingIpAndPort(context.getOnlineEndpointUUIDs(),
+            context.getEndpoint()));
+      }
+      // TODO: Temporary Change: for now initialize each leafQueue leader as foremanNodeUUID
+      rmStateBlobs.put(QueueLeadershipBlob.NAME, new QueueLeadershipBlob(RM_STATE_BLOB_VERSION, queueLeaders));
 
       // This ForemanResourceUsage blob needs to be per queue
       final ForemanQueueUsageBlob queueUsageBlob = new ForemanQueueUsageBlob(RM_STATE_BLOB_VERSION, new HashMap<>());
@@ -180,8 +189,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
                                String queryId, String foremanUUID) throws Exception {
     // Looks like leader hasn't changed yet so let's try to reserve the resources
     // See if the call is to reserve or free up resources
-    Map<String, NodeResources> resourcesMap = queryResourceAssignment;
-    resourcesMap = queryResourceAssignment.entrySet().stream()
+    final Map<String, NodeResources> resourcesMap = queryResourceAssignment.entrySet().stream()
       .collect(Collectors.toMap(Map.Entry::getKey,
         (x) -> new NodeResources(x.getValue().getVersion(),
                                  -x.getValue().getMemoryInBytes(),
