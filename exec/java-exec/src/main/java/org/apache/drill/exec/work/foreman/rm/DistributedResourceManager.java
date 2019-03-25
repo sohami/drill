@@ -282,7 +282,7 @@ public class DistributedResourceManager implements ResourceManager {
     @Override
     public QueryParallelizer getParallelizer(boolean planHasMemory) {
       // currently memory planning is disabled. Enable it once the RM functionality is fully implemented.
-      return new DistributedQueueParallelizer(true || planHasMemory, this.queryContext, this);
+      return new DistributedQueueParallelizer(planHasMemory, this.queryContext, this);
     }
 
     @Override
@@ -310,7 +310,8 @@ public class DistributedResourceManager implements ResourceManager {
       // TODO: Set the LeaderUUID based on the selected queue
       admittedLeaderUUID = foremanUUID;
       currentQueueLeader = admittedLeaderUUID;
-
+      logger.info("Selected queue {} for query {} with leader {}", selectedQueue.getQueueName(),
+        queryContext.getQueryId(), admittedLeaderUUID);
       return selectedQueue;
     }
 
