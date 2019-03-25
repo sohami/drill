@@ -123,7 +123,7 @@ public class MemoryCalculator extends AbstractOpWrapperVisitor<Void, RuntimeExce
 
   @Override
   public Void visitOp(PhysicalOperator op, Wrapper fragment) {
-    long memoryCost = (int)Math.ceil(op.getCost().getMemoryCost());
+    long memoryCost = (long)Math.ceil(op.getCost().getMemoryCost());
     if (op.isBufferedOperator(queryContext)) {
       // If the operator is a buffered operator then get the memory estimates of the optimizer.
       // The memory estimates of the optimizer are for the whole operator spread across all the
