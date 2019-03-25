@@ -44,6 +44,7 @@ import org.apache.drill.test.ClusterFixture;
 import org.apache.drill.test.ClusterFixtureBuilder;
 import org.junit.AfterClass;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -87,7 +88,7 @@ public class TestMemoryCalculator extends PlanTestBase {
   private static final QueryContext queryContext = new QueryContext(session, drillbitContext,
                                                                     UserBitShared.QueryId.getDefaultInstance());
 
-  private Map<DrillbitEndpoint, String> onlineEndpoints;
+  private static Map<DrillbitEndpoint, String> onlineEndpoints;
   private Map<DrillNode, NodeResources> resources;
 
   @AfterClass
@@ -200,9 +201,14 @@ public class TestMemoryCalculator extends PlanTestBase {
     return mockPlanningSet(parallelizer.prepareFragmentTree(rootFragment), resources, activeEndpoints);
   }
 
-  @Before
-  public void setup() {
+  @BeforeClass
+  public static void setupForAllTests() {
     onlineEndpoints = getEndpoints(2, new HashSet<>());
+  }
+
+  @Before
+  public void setupForEachTest() {
+    // Have to create separately for each test since it is updated my MemoryCalculator during merge
     resources = onlineEndpoints.keySet().stream().collect(Collectors.toMap(x -> DrillNode.create(x),
       x -> NodeResources.create()));
   }
