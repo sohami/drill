@@ -25,28 +25,21 @@ public enum RpcType implements com.dyuproject.protostuff.EnumLite<RpcType>
     HANDSHAKE(0),
     ACK(1),
     GOODBYE(2),
-    RUN_QUERY(3),
-    CANCEL_QUERY(4),
-    REQUEST_RESULTS(5),
-    RESUME_PAUSED_QUERY(11),
-    GET_QUERY_PLAN_FRAGMENTS(12),
-    GET_CATALOGS(14),
-    GET_SCHEMAS(15),
-    GET_TABLES(16),
-    GET_COLUMNS(17),
-    CREATE_PREPARED_STATEMENT(22),
-    GET_SERVER_META(8),
-    QUERY_DATA(6),
-    QUERY_HANDLE(7),
-    QUERY_PLAN_FRAGMENTS(13),
-    CATALOGS(18),
-    SCHEMAS(19),
-    TABLES(20),
-    COLUMNS(21),
-    PREPARED_STATEMENT(23),
-    SERVER_META(9),
-    QUERY_RESULT(10),
-    SASL_MESSAGE(24);
+    REQ_INITIALIZE_FRAGMENTS(3),
+    REQ_CANCEL_FRAGMENT(6),
+    REQ_RECEIVER_FINISHED(7),
+    REQ_FRAGMENT_STATUS(8),
+    REQ_BIT_STATUS(9),
+    REQ_QUERY_STATUS(10),
+    REQ_QUERY_CANCEL(15),
+    REQ_UNPAUSE_FRAGMENT(16),
+    REQ_CUSTOM(17),
+    RESP_FRAGMENT_HANDLE(11),
+    RESP_FRAGMENT_STATUS(12),
+    RESP_BIT_STATUS(13),
+    RESP_QUERY_STATUS(14),
+    RESP_CUSTOM(18),
+    SASL_MESSAGE(19);
     
     public final int number;
     
@@ -67,28 +60,21 @@ public enum RpcType implements com.dyuproject.protostuff.EnumLite<RpcType>
             case 0: return HANDSHAKE;
             case 1: return ACK;
             case 2: return GOODBYE;
-            case 3: return RUN_QUERY;
-            case 4: return CANCEL_QUERY;
-            case 5: return REQUEST_RESULTS;
-            case 6: return QUERY_DATA;
-            case 7: return QUERY_HANDLE;
-            case 8: return GET_SERVER_META;
-            case 9: return SERVER_META;
-            case 10: return QUERY_RESULT;
-            case 11: return RESUME_PAUSED_QUERY;
-            case 12: return GET_QUERY_PLAN_FRAGMENTS;
-            case 13: return QUERY_PLAN_FRAGMENTS;
-            case 14: return GET_CATALOGS;
-            case 15: return GET_SCHEMAS;
-            case 16: return GET_TABLES;
-            case 17: return GET_COLUMNS;
-            case 18: return CATALOGS;
-            case 19: return SCHEMAS;
-            case 20: return TABLES;
-            case 21: return COLUMNS;
-            case 22: return CREATE_PREPARED_STATEMENT;
-            case 23: return PREPARED_STATEMENT;
-            case 24: return SASL_MESSAGE;
+            case 3: return REQ_INITIALIZE_FRAGMENTS;
+            case 6: return REQ_CANCEL_FRAGMENT;
+            case 7: return REQ_RECEIVER_FINISHED;
+            case 8: return REQ_FRAGMENT_STATUS;
+            case 9: return REQ_BIT_STATUS;
+            case 10: return REQ_QUERY_STATUS;
+            case 11: return RESP_FRAGMENT_HANDLE;
+            case 12: return RESP_FRAGMENT_STATUS;
+            case 13: return RESP_BIT_STATUS;
+            case 14: return RESP_QUERY_STATUS;
+            case 15: return REQ_QUERY_CANCEL;
+            case 16: return REQ_UNPAUSE_FRAGMENT;
+            case 17: return REQ_CUSTOM;
+            case 18: return RESP_CUSTOM;
+            case 19: return SASL_MESSAGE;
             default: return null;
         }
     }

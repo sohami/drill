@@ -274,7 +274,6 @@ public class DistributedResourceManager implements ResourceManager {
 
     @Override
     public void setCost(double cost) {
-      throw new UnsupportedOperationException("DistributedQueryRM doesn't support cost in double format");
     }
 
     public void setCost(Map<String, NodeResources> costOnAssignedEndpoints) {
