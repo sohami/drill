@@ -27,6 +27,7 @@ import org.apache.drill.exec.work.foreman.rm.DefaultResourceManager;
 import org.apache.drill.exec.work.foreman.rm.DistributedResourceManager;
 import org.apache.drill.exec.work.foreman.rm.ResourceManager;
 import org.apache.drill.test.BaseDirTestWatcher;
+import org.apache.drill.test.ClientFixture;
 import org.apache.drill.test.ClusterFixture;
 import org.apache.drill.test.ClusterFixtureBuilder;
 import org.apache.drill.test.DrillTest;
@@ -51,7 +52,7 @@ public final class TestRMConfigLoad extends DrillTest {
       .configProperty(ExecConstants.DRILL_PORT_HUNT, true)
       .withLocalZk();
 
-    try (ClusterFixture cluster = fixtureBuilder.build()) {
+    ClusterFixture cluster = fixtureBuilder.build();
       ResourceManager resourceManager = cluster.drillbit().getContext().getResourceManager();
       assertTrue(resourceManager instanceof DistributedResourceManager);
 
@@ -76,7 +77,9 @@ public final class TestRMConfigLoad extends DrillTest {
         RMCommonDefaults.MAX_WAIT_TIMEOUT_IN_MS, defaultQueue.getWaitTimeoutInMs());
       assertEquals("wait_for_preferred_nodes in drill-rm-default is not configured with expected default value",
         RMCommonDefaults.WAIT_FOR_PREFERRED_NODES, defaultQueue.waitForPreferredNodes());
-    }
+
+      ClientFixture clientFixture = cluster.clientFixture();
+      clientFixture.runQueriesAndLog("SELECT * FROM sys.drillbits;");
   }
 
   @Test

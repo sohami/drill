@@ -21,13 +21,15 @@ import avro.shaded.com.google.common.annotations.VisibleForTesting;
 import org.apache.drill.common.config.DrillConfig;
 import org.apache.drill.common.exceptions.DrillRuntimeException;
 import org.apache.drill.exec.ExecConstants;
+import org.apache.drill.exec.coord.zk.ZKClusterCoordinator;
 import org.apache.drill.exec.exception.StoreException;
 import org.apache.drill.exec.ops.QueryContext;
 import org.apache.drill.exec.planner.fragment.DistributedQueueParallelizer;
 import org.apache.drill.exec.planner.fragment.QueryParallelizer;
 import org.apache.drill.exec.planner.fragment.common.DrillNode;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
-import org.apache.drill.exec.proto.UserBitShared;
+import org.apache.drill.exec.proto.UserBitShared.QueryId;
+import org.apache.drill.exec.proto.UserBitShared.QueryResult.QueryState;
 import org.apache.drill.exec.resourcemgr.NodeResources;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.RMCommonDefaults;
@@ -40,6 +42,7 @@ import org.apache.drill.exec.resourcemgr.rmblobmgr.RMBlobStoreManager;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.RMConsistentBlobStoreManager;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.exception.ResourceUnavailableException;
 import org.apache.drill.exec.server.DrillbitContext;
+import org.apache.drill.exec.work.foreman.DrillbitStatusListener;
 import org.apache.drill.exec.work.foreman.Foreman;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueryQueueException;
 import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueueTimeoutException;
@@ -106,7 +109,11 @@ public class DistributedResourceManager implements ResourceManager {
       for (String leafQueue : leafQueues) {
         waitingQueuesForAdmittedQuery.put(leafQueue, new PriorityQueue<>(waitTimeComparator));
       }
-      this.rmBlobStoreManager = new RMConsistentBlobStoreManager(context, rmPoolTree.getAllLeafQueues().values());
+      this.rmBlobStoreManager = new RMConsistentBlobStoreManager(context, rmPoolTree);
+
+      // Register the DrillbitStatusListener which registers the localBitResourceShare
+      context.getClusterCoordinator().addDrillbitStatusListener(
+        new RegisterLocalBitResources(context, rmPoolTree, rmBlobStoreManager));
 
       // start the wait thread
       final int waitThreadInterval = calculateWaitInterval(rmConfig, rmPoolTree.getAllLeafQueues().values());
@@ -320,7 +327,7 @@ public class DistributedResourceManager implements ResourceManager {
       return admittedLeaderUUID;
     }
 
-    public boolean reserveResources(UserBitShared.QueryId queryId) throws Exception {
+    public boolean reserveResources(QueryId queryId) throws Exception {
       try {
         Preconditions.checkState(assignedEndpointsCost != null,
           "Cost of the query is not set before calling reserve resources");
@@ -439,6 +446,11 @@ public class DistributedResourceManager implements ResourceManager {
           // queryRMCleanupQueue. If send failure happens because of leader change then ignore the failure
           updateState(QueryRMState.DEQUEUED);
           break;
+        case STARTED:
+          Preconditions.checkState(foreman.getState() == QueryState.FAILED, "QueryRM exit is " +
+            "called in an unexpected query state. [Details: QueryRM state: %s, Query State: %s]",
+            currentState, foreman.getState());
+          break;
         default:
           throw new IllegalStateException("QueryRM exit is called in unexpected state. Looks like something is wrong " +
             "with internal state!!");
@@ -542,6 +554,67 @@ public class DistributedResourceManager implements ResourceManager {
           logger.error("Thread {} is interrupted", getName());
           continue;
         }
+      }
+    }
+  }
+
+  public static class RegisterLocalBitResources implements DrillbitStatusListener {
+
+    private final DrillNode localEndpointNode;
+
+    private final RMBlobStoreManager storeManager;
+
+    private final NodeResources localBitResourceShare;
+
+    private Set<String> leafQueues;
+
+    private final ZKClusterCoordinator coord;
+
+    private final DrillbitContext context;
+
+    public RegisterLocalBitResources(DrillbitContext context, ResourcePoolTree rmPoolTree,
+                                     RMBlobStoreManager storeManager) {
+      this.localEndpointNode = DrillNode.create(context.getEndpoint());
+      this.localBitResourceShare = rmPoolTree.getRootPoolResources();
+      this.storeManager = storeManager;
+      this.coord = (ZKClusterCoordinator) context.getClusterCoordinator();
+      this.context = context;
+      this.leafQueues = rmPoolTree.getAllLeafQueues().keySet();
+    }
+
+    @Override
+    public void drillbitUnregistered(Map<DrillbitEndpoint, String> unregisteredDrillbitsUUID) {
+      // no-op for now. May be we can use this to handler failure scenarios of bit going down
+    }
+
+    @Override
+    public void drillbitRegistered(Map<DrillbitEndpoint, String> registeredDrillbitsUUID) {
+      // Check if in registeredDrillbits local drillbit is present and with state as ONLINE since this listener
+      // will be invoked for every state change as well
+      final Map<DrillNode, String> registeredNodeUUID = registeredDrillbitsUUID.entrySet().stream()
+        .collect(Collectors.toMap(x -> DrillNode.create(x.getKey()), Map.Entry::getValue));
+      final Map<String, DrillbitEndpoint> uuidToEndpoint = registeredDrillbitsUUID.entrySet().stream()
+        .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
+
+      try {
+        if (registeredNodeUUID.containsKey(localEndpointNode)) {
+          final String localBitUUID = registeredNodeUUID.get(localEndpointNode);
+          final DrillbitEndpoint localEndpoint = uuidToEndpoint.get(localBitUUID);
+
+          if (localEndpoint.getState() == DrillbitEndpoint.State.ONLINE) {
+            storeManager.registerResource(localBitUUID, localBitResourceShare);
+            logger.info("Registering local bit resource share");
+
+            // TODO: Temp update queue leaders as self
+            for (String queueName : leafQueues)
+            storeManager.updateLeadershipInformation(queueName, localBitUUID);
+          }
+        }
+      } catch (Exception ex) {
+        // fails to register local bit resources to zookeeper
+        logger.error("Fails to register local bit resource share so unregister local Drillbit");
+        // below getRegistrationHandle blocks until registration handle is set, if already set then return immediately
+        coord.unregister(context.getRegistrationHandle());
       }
     }
   }

@@ -23,6 +23,8 @@ import com.typesafe.config.ConfigValueFactory;
 import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfigImpl;
+import org.apache.drill.exec.resourcemgr.config.ResourcePoolTree;
+import org.apache.drill.exec.resourcemgr.config.ResourcePoolTreeImpl;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.RMConsistentBlobStoreManager;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.rmblob.ClusterStateBlob;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.rmblob.ForemanQueueUsageBlob;
@@ -45,6 +47,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 public class RMBlobManagerTest extends DrillTest {
   //private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RMBlobManagerTest.class);
@@ -61,7 +65,7 @@ public class RMBlobManagerTest extends DrillTest {
 
   private ForemanQueueUsageBlob foremanQueueUsageBlob;
 
-  private final List<QueryQueueConfig> leafQueues = new ArrayList<>();
+  private final Map<String, QueryQueueConfig> leafQueues = new HashMap<>();
 
   @Before
   public void testSetup() throws Exception {
@@ -77,9 +81,9 @@ public class RMBlobManagerTest extends DrillTest {
       final QueryQueueConfig leafQueue3 = new QueryQueueConfigImpl(queueConfig.getConfig("queue"), "queue3",
         null);
 
-      leafQueues.add(leafQueue1);
-      leafQueues.add(leafQueue2);
-      leafQueues.add(leafQueue3);
+      leafQueues.put("queue1", leafQueue1);
+      leafQueues.put("queue2", leafQueue2);
+      leafQueues.put("queue3", leafQueue3);
 
       final List<String> drillUUID = new ArrayList<>();
       drillUUID.add(UUID.randomUUID().toString());
@@ -137,12 +141,14 @@ public class RMBlobManagerTest extends DrillTest {
 
     try (ClusterFixture cluster = fixtureBuilder.build()) {
       final DrillbitContext context = cluster.drillbit().getContext();
-      rmConsistentBlobStoreManager = new RMConsistentBlobStoreManager(context, leafQueues);
+      final ResourcePoolTree rmPoolTree = mock(ResourcePoolTreeImpl.class);
+      when(rmPoolTree.getAllLeafQueues()).thenReturn(leafQueues);
+      rmConsistentBlobStoreManager = new RMConsistentBlobStoreManager(context, rmPoolTree);
       Map<String, RMStateBlob> blobsToSerialize = new HashMap<>();
       blobsToSerialize.put(ClusterStateBlob.NAME, clusterStateBlob);
       blobsToSerialize.put(QueueLeadershipBlob.NAME, queueLeadershipBlob);
 
-      for (QueryQueueConfig leafQueue : leafQueues) {
+      for (QueryQueueConfig leafQueue : leafQueues.values()) {
         String blobName = ForemanQueueUsageBlob.NAME + "_" + leafQueue.getQueueName();
         blobsToSerialize.put(blobName, foremanQueueUsageBlob);
       }
@@ -164,7 +170,9 @@ public class RMBlobManagerTest extends DrillTest {
 
     try (ClusterFixture cluster = fixtureBuilder.build()) {
       DrillbitContext context = cluster.drillbit().getContext();
-      final RMConsistentBlobStoreManager rmManager = new RMConsistentBlobStoreManager(context, leafQueues);
+      final ResourcePoolTree rmPoolTree = mock(ResourcePoolTreeImpl.class);
+      when(rmPoolTree.getAllLeafQueues()).thenReturn(leafQueues);
+      final RMConsistentBlobStoreManager rmManager = new RMConsistentBlobStoreManager(context, rmPoolTree);
 
     }
   }

@@ -30,6 +30,7 @@ import org.apache.drill.exec.exception.StoreException;
 import org.apache.drill.exec.resourcemgr.NodeResources;
 import org.apache.drill.exec.resourcemgr.NodeResources.NodeResourcesDe;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
+import org.apache.drill.exec.resourcemgr.config.ResourcePoolTree;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.exception.LeaderChangeException;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.exception.RMBlobUpdateException;
 import org.apache.drill.exec.resourcemgr.rmblobmgr.exception.ResourceUnavailableException;
@@ -42,7 +43,6 @@ import org.apache.drill.exec.resourcemgr.rmblobmgr.rmblob.RMStateBlob;
 import org.apache.drill.exec.server.DrillbitContext;
 import org.apache.drill.exec.store.sys.PersistentStoreConfig;
 import org.apache.drill.exec.store.sys.store.ZookeeperTransactionalPersistenceStore;
-import org.apache.drill.exec.work.foreman.rm.DistributedResourceManager;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -82,12 +82,15 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
 
   private final Map<String, RMStateBlob> rmStateBlobs;
 
+  private final ResourcePoolTree resourceTree;
+
   private final StringBuilder exceptionStringBuilder = new StringBuilder();
 
-  public RMConsistentBlobStoreManager(DrillbitContext context, Collection<QueryQueueConfig> leafQueues) throws
+  public RMConsistentBlobStoreManager(DrillbitContext context, ResourcePoolTree poolTree) throws
     StoreException {
     try {
       this.context = context;
+      this.resourceTree = poolTree;
       this.serDeMapper = initializeMapper(context.getClasspathScan());
       this.rmBlobStore = (ZookeeperTransactionalPersistenceStore<RMStateBlob>) context.getStoreProvider()
         .getOrCreateStore(PersistentStoreConfig.newJacksonBuilder(serDeMapper, RMStateBlob.class)
@@ -97,7 +100,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
       this.globalBlobMutex = new InterProcessMutex(((ZKClusterCoordinator) context.getClusterCoordinator()).getCurator(),
         RM_LOCK_ROOT + RM_BLOB_GLOBAL_LOCK_NAME);
       this.rmStateBlobs = new HashMap<>();
-      initializeBlobs(leafQueues);
+      initializeBlobs(resourceTree.getAllLeafQueues().values());
     } catch (StoreException ex) {
       throw ex;
     } catch (Exception ex) {
@@ -150,6 +153,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
       rmStateBlobs.put(ClusterStateBlob.NAME,
         new ClusterStateBlob(RM_STATE_BLOB_VERSION, new HashMap<>()));
 
+      /*
       // TODO: Temporary Change: for now initialize each leafQueue leader as foremanNodeUUID
       final Map<String, String> queueLeaders = new HashMap<>();
       for (QueryQueueConfig queueConfig : leafQueues) {
@@ -158,6 +162,9 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
             context.getEndpoint()));
       }
       // TODO: Temporary Change: for now initialize each leafQueue leader as foremanNodeUUID
+      rmStateBlobs.put(QueueLeadershipBlob.NAME, new QueueLeadershipBlob(RM_STATE_BLOB_VERSION, queueLeaders));
+      */
+      final Map<String, String> queueLeaders = new HashMap<>();
       rmStateBlobs.put(QueueLeadershipBlob.NAME, new QueueLeadershipBlob(RM_STATE_BLOB_VERSION, queueLeaders));
 
       // This ForemanResourceUsage blob needs to be per queue
@@ -202,6 +209,84 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
                             QueryQueueConfig selectedQueue, String leaderId,
                             String queryId, String foremanUUID) throws Exception {
     return acquireLockAndUpdate(queryResourceAssignment, selectedQueue, leaderId, queryId, foremanUUID, true);
+  }
+
+  @Override
+  public void registerResource(String selfUUID, NodeResources resourceToRegister) throws Exception {
+    try {
+      globalBlobMutex.acquire();
+    } catch (Exception ex) {
+      logger.error("Failed on acquiring the global mutex while registering self resources in blob");
+      throw ex;
+    }
+
+    try {
+      // get the current cluster state blob
+      final ClusterStateBlob clusterBlob = (ClusterStateBlob) rmBlobStore.get(ClusterStateBlob.NAME, null);
+      final Map<String, NodeResources> currentClusterState = clusterBlob.getClusterState();
+      if (currentClusterState.containsKey(selfUUID)) {
+        throw new RMBlobUpdateException(String.format("Drillbit with UUID %s is already present in the cluster state " +
+          "blob. This can only happen if 2 Drillbits are assigned same unique id", selfUUID));
+      }
+
+      currentClusterState.put(selfUUID, resourceToRegister);
+      clusterBlob.setClusterState(currentClusterState);
+
+      // write the updated cluster state blob
+      rmBlobStore.put(ClusterStateBlob.NAME, clusterBlob);
+    } catch (Exception ex) {
+      logger.error("Failed to register resource in the blob", ex);
+      throw new RMBlobUpdateException("Failed to register resource in the blob", ex);
+    } finally {
+      // Check if the caller has acquired the mutex
+      if (globalBlobMutex.isAcquiredInThisProcess()) {
+        try {
+          globalBlobMutex.release();
+        } catch (Exception ex) {
+          logger.error("Failed on releasing the global mutex while registering self resources in blob", ex);
+          // don't throw this release exception instead throw the original exception if any. Since release exception
+          // should not matter much
+        }
+      }
+    }
+  }
+
+  @Override
+  public void updateLeadershipInformation(String queueName, String leaderUUID) throws Exception {
+    try {
+      globalBlobMutex.acquire();
+    } catch (Exception ex) {
+      logger.error("Failed on acquiring the global mutex while updating queue leader in blob");
+      throw ex;
+    }
+
+    try {
+      // get the current cluster state blob
+      final QueueLeadershipBlob queueLeaderBlob = (QueueLeadershipBlob) rmBlobStore.get(QueueLeadershipBlob.NAME,
+        null);
+      final Map<String, String> currentQueueLeaders = queueLeaderBlob.getQueueLeaders();
+      final String oldLeaderId = currentQueueLeaders.put(queueName, leaderUUID);
+
+      logger.info("Updating the leadership information for queue. [Details: QueueName: {}, OldLeader: {}, NewLeader: " +
+        "{}]", queueName, oldLeaderId == null ? "" : oldLeaderId, leaderUUID);
+
+      // write the updated cluster state blob
+      rmBlobStore.put(QueueLeadershipBlob.NAME, queueLeaderBlob);
+    } catch (Exception ex) {
+      logger.error("Failed to update queue leadership information in the blob", ex);
+      throw new RMBlobUpdateException("Failed to update queue leadership information in the blob", ex);
+    } finally {
+      // Check if the caller has acquired the mutex
+      if (globalBlobMutex.isAcquiredInThisProcess()) {
+        try {
+          globalBlobMutex.release();
+        } catch (Exception ex) {
+          logger.error("Failed on releasing the global mutex while updating queue leader in blob", ex);
+          // don't throw this release exception instead throw the original exception if any. Since release exception
+          // should not matter much
+        }
+      }
+    }
   }
 
   private String updateBlobs(Map<String, NodeResources> resourcesMap, QueryQueueConfig selectedQueue,
@@ -255,7 +340,7 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
         throw new LeaderChangeException(logString);
       }
     }
-    // Remove leadership blob from cache
+    // Remove leadership blob from cache since we don't have to update this blob
     rmStateBlobs.remove(QueueLeadershipBlob.NAME);
 
     // Cluster state blob
@@ -265,7 +350,12 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
     // ForemanResourceUsage blob
     final ForemanQueueUsageBlob resourceUsageBlob = (ForemanQueueUsageBlob)rmStateBlobs.get(queueBlobName);
     final Map<String, ForemanResourceUsage> allForemanUsage = resourceUsageBlob.getAllForemanInfo();
-    final ForemanResourceUsage currentUsage = allForemanUsage.get(foremanUUID);
+    ForemanResourceUsage currentUsage = allForemanUsage.get(foremanUUID);
+
+    if (currentUsage == null) {
+      // there is no usage registered by this foreman bit yet on this queue so create a default instance
+      currentUsage = new ForemanResourceUsage(RM_STATE_BLOB_VERSION, new HashMap<>(), 0);
+    }
     final Map<String, NodeResources> usageMapAcrossDrillbits = currentUsage.getForemanUsage();
     int currentRunningCount = currentUsage.getRunningCount();
 
@@ -295,7 +385,11 @@ public class RMConsistentBlobStoreManager implements RMBlobStoreManager {
       currentClusterState.put(bitUUID, bitAvailableResources);
 
       // Update local ForemanResourceUsage for foremanNode with this query resource ask
-      final NodeResources currentState = usageMapAcrossDrillbits.get(bitUUID);
+      NodeResources currentState = usageMapAcrossDrillbits.get(bitUUID);
+      if (currentState == null) {
+        final NodeResources nodeShare = resourceTree.getRootPoolResources();
+        currentState = new NodeResources(nodeShare.getMemoryInBytes(), nodeShare.getNumVirtualCpu());
+      }
       long availableMemory = currentState.getMemoryInBytes();
       currentState.setMemoryInBytes(availableMemory - memoryToReserve);
       usageMapAcrossDrillbits.put(bitUUID, currentState);

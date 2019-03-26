@@ -64,7 +64,11 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
     return (endpoint, operator) -> {
       if (!planHasMemory) {
         final DrillNode drillEndpointNode = DrillNode.create(endpoint);
-        return operators.get(drillEndpointNode).get(operator);
+        if (operator.isBufferedOperator(queryContext)) {
+          return operators.get(drillEndpointNode).get(operator);
+        } else {
+          return operator.getMaxAllocation();
+        }
       }
       else {
         return operator.getMaxAllocation();

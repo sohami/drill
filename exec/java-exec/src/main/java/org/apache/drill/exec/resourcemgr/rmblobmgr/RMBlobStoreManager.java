@@ -36,4 +36,8 @@ public interface RMBlobStoreManager {
 
   String freeResources(Map<String, NodeResources> queryResourceAssignment, QueryQueueConfig selectedQueue,
                      String leaderId, String queryId, String foremanUUID) throws Exception;
+
+  void registerResource(String selfUUID, NodeResources resourceToRegister) throws Exception;
+
+  void updateLeadershipInformation(String queueName, String leaderUUID) throws Exception;
 }
