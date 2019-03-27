@@ -606,8 +606,9 @@ public class DistributedResourceManager implements ResourceManager {
             logger.info("Registering local bit resource share");
 
             // TODO: Temp update queue leaders as self
-            for (String queueName : leafQueues)
-            storeManager.updateLeadershipInformation(queueName, localBitUUID);
+            for (String queueName : leafQueues) {
+              storeManager.updateLeadershipInformation(queueName, localBitUUID);
+            }
           }
         }
       } catch (Exception ex) {

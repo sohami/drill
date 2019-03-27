@@ -22,6 +22,7 @@ import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.coord.ClusterCoordinator;
 import org.apache.drill.exec.coord.local.LocalClusterCoordinator;
 import org.apache.drill.exec.server.DrillbitContext;
+import org.apache.drill.exec.server.options.SystemOptionManager;
 
 /**
  * Builds the proper resource manager and queue implementation for the configured
@@ -62,18 +63,23 @@ public class ResourceManagerBuilder {
 
   @SuppressWarnings("resource")
   public ResourceManager build() {
-    ClusterCoordinator coord = context.getClusterCoordinator();
-    DrillConfig config = context.getConfig();
+    final ClusterCoordinator coord = context.getClusterCoordinator();
+    final DrillConfig config = context.getConfig();
+    final SystemOptionManager systemOptions = context.getOptionManager();
     if (coord instanceof LocalClusterCoordinator) {
-      logger.info("Zookeeper is not configured as ClusterCoordinator hence using Default Manager. [Details: " +
-        "isRMEnabled: {}]", config.getBoolean(ExecConstants.RM_ENABLED));
-      return new DefaultResourceManager();
-    } else if (config.getBoolean(ExecConstants.RM_ENABLED)){
-      logger.info("RM is enabled in Drillbit config hence using Distributed Manager");
+      if (config.getBoolean(EmbeddedQueryQueue.ENABLED)) {
+        logger.info("Enabling embedded, local query queue");
+        return new ThrottledResourceManager(context, new EmbeddedQueryQueue(context));
+      } else {
+        logger.info("Zookeeper is not configured as ClusterCoordinator hence using Default Manager. [Details: " + "isRMEnabled: {}]", config.getBoolean(ExecConstants.RM_ENABLED));
+        return new DefaultResourceManager();
+      }
+    } else if (config.getBoolean(ExecConstants.RM_ENABLED) && !systemOptions.getOption(ExecConstants.ENABLE_QUEUE)){
+      logger.info("RM is enabled and queues are disabled so using Distributed Resource Manager");
       return new DistributedResourceManager(context);
     } else {
-      logger.info("RM is disabled in Drillbit config hence using Default Manager");
-      return new DefaultResourceManager();
+      logger.info("Using Dynamic Resource Manager to either enable Default of Throttled Resource Manager");
+      return new DynamicResourceManager(context);
     }
   }
 }
