@@ -333,6 +333,7 @@ public class DrillbitContext implements AutoCloseable {
     getFunctionImplementationRegistry().close();
     getRemoteFunctionRegistry().close();
     getCompiler().close();
+    getResourceManager().close();
   }
 
   public ResourceManager getResourceManager() {
