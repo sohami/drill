@@ -112,7 +112,7 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
 
     for (Wrapper wrapper : roots) {
       traverse(wrapper, CheckedConsumer.throwingConsumerWrapper((Wrapper fragment) -> {
-        MemoryCalculator calculator = new MemoryCalculator(planningSet, queryContext);
+        MemoryCalculator calculator = new MemoryCalculator(planningSet, queryContext, rm.minimumOperatorMemory());
         fragment.getNode().getRoot().accept(calculator, fragment);
         NodeResources.merge(totalNodeResources, fragment.getResourceMap());
         operators.entrySet()
@@ -131,7 +131,7 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
 
     Map<DrillNode,
         List<Pair<PhysicalOperator, Long>>> memoryAdjustedOperators = ensureOperatorMemoryWithinLimits(operators, totalNodeResources,
-                                                                                                       queueConfig.getMaxQueryMemoryInMBPerNode());
+                                                                                                       convertMBToBytes(queueConfig.getMaxQueryMemoryInMBPerNode()));
     memoryAdjustedOperators.entrySet().stream().forEach((x) -> {
       Map<PhysicalOperator, Long> memoryPerOperator = x.getValue().stream()
                                                                   .collect(Collectors.toMap(operatorLongPair -> operatorLongPair.getLeft(),
@@ -141,6 +141,10 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
     });
 
     this.rm.setCost(convertToUUID(totalNodeResources, onlineDrillNodeUUIDs));
+  }
+
+  private long convertMBToBytes(long value) {
+    return value * 1024 * 1024;
   }
 
   private Map<String, NodeResources> convertToUUID(Map<DrillNode, NodeResources> nodeResourcesMap,
@@ -172,26 +176,27 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
    */
   private Map<DrillNode, List<Pair<PhysicalOperator, Long>>>
           ensureOperatorMemoryWithinLimits(Map<DrillNode, List<Pair<PhysicalOperator, Long>>> memoryPerOperator,
-                                           Map<DrillNode, NodeResources> nodeResourceMap, long nodeLimit) {
+                                           Map<DrillNode, NodeResources> nodeResourceMap, long nodeLimit) throws ExecutionSetupException {
     // Get the physical operators which are above the node memory limit.
-    Map<DrillNode, List<Pair<PhysicalOperator, Long>>> onlyMemoryAboveLimitOperators = new HashMap<>();
-    memoryPerOperator.entrySet().stream().forEach((entry) -> {
-      onlyMemoryAboveLimitOperators.putIfAbsent(entry.getKey(), new ArrayList<>());
-      if (nodeResourceMap.get(entry.getKey()).getMemoryInBytes() > nodeLimit) {
-        onlyMemoryAboveLimitOperators.get(entry.getKey()).addAll(entry.getValue());
-      }
-    });
-
+    Map<DrillNode,
+         List<Pair<PhysicalOperator, Long>>> onlyMemoryAboveLimitOperators = memoryPerOperator.entrySet()
+                                                                                              .stream()
+                                                                                              .filter(entry -> nodeResourceMap.get(entry.getKey()).getMemoryInBytes() > nodeLimit)
+                                                                                              .collect(Collectors.toMap(entry -> entry.getKey(), entry -> entry.getValue()));
 
     // Compute the total memory required by the physical operators on the drillbits which are above node limit.
     // Then use the total memory to adjust the memory requirement based on the permissible node limit.
     Map<DrillNode, List<Pair<PhysicalOperator, Long>>> memoryAdjustedDrillbits = new HashMap<>();
     onlyMemoryAboveLimitOperators.entrySet().stream().forEach(
       entry -> {
-        Long totalMemory = entry.getValue().stream().mapToLong(Pair::getValue).sum();
-        List<Pair<PhysicalOperator, Long>> adjustedMemory = entry.getValue().stream().map(operatorMemory -> {
+        Long totalBufferedOperatorsMemoryReq = entry.getValue().stream().mapToLong(Pair::getValue).sum();
+        Long nonBufferedOperatorsMemoryReq = nodeResourceMap.get(entry.getKey()).getMemoryInBytes() - totalBufferedOperatorsMemoryReq;
+        Long bufferedOperatorsMemoryLimit = nodeLimit - nonBufferedOperatorsMemoryReq;
+        List<Pair<PhysicalOperator, Long>> adjustedMemory = entry.getValue().stream().map(operatorAndMemory -> {
           // formula to adjust the memory is (optimalMemory / totalMemory(this is for all the operators)) * permissible_node_limit.
-          return Pair.of(operatorMemory.getKey(), (long) Math.ceil(operatorMemory.getValue()/totalMemory * nodeLimit));
+          return Pair.of(operatorAndMemory.getKey(),
+                         Math.max(this.rm.minimumOperatorMemory(),
+                                  (long) Math.ceil(operatorAndMemory.getValue()/totalBufferedOperatorsMemoryReq * bufferedOperatorsMemoryLimit)));
         }).collect(Collectors.toList());
         memoryAdjustedDrillbits.put(entry.getKey(), adjustedMemory);
         NodeResources nodeResources = nodeResourceMap.get(entry.getKey());
@@ -199,23 +204,29 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
       }
     );
 
+    checkIfWithinLimit(nodeResourceMap, nodeLimit);
+
     // Get all the operations on drillbits which were adjusted for memory and merge them with operators which are not
     // adjusted for memory.
-    Map<DrillNode, List<Pair<PhysicalOperator, Long>>> allDrillbits = new HashMap<>();
-    memoryPerOperator.entrySet().stream().filter((entry) -> !memoryAdjustedDrillbits.containsKey(entry.getKey())).forEach(
-      operatorMemory -> {
-        allDrillbits.put(operatorMemory.getKey(), operatorMemory.getValue());
-      }
-    );
+    Map<DrillNode,
+        List<Pair<PhysicalOperator, Long>>> allDrillbits = memoryPerOperator.entrySet()
+                                                                            .stream()
+                                                                            .filter((entry) -> !memoryAdjustedDrillbits.containsKey(entry.getKey()))
+                                                                            .collect(Collectors.toMap(entry -> entry.getKey(), entry -> entry.getValue()));
 
     memoryAdjustedDrillbits.entrySet().stream().forEach(
-      operatorMemory -> {
-        allDrillbits.put(operatorMemory.getKey(), operatorMemory.getValue());
-      }
-    );
+      operatorMemory -> allDrillbits.put(operatorMemory.getKey(), operatorMemory.getValue()));
 
     // At this point allDrillbits contains the operators on all drillbits. The memory also is adjusted based on the nodeLimit and
     // the ratio of their requirements.
     return allDrillbits;
+  }
+
+  private void checkIfWithinLimit(Map<DrillNode, NodeResources> nodeResourcesMap, long nodeLimit) throws ExecutionSetupException {
+    for (Map.Entry<DrillNode, NodeResources> entry : nodeResourcesMap.entrySet()) {
+      if (entry.getValue().getMemoryInBytes() > nodeLimit) {
+        throw new ExecutionSetupException("Minimum memory requirement " + entry.getValue().getMemoryInBytes() + " for a node " + entry.getKey() + " is greater than limit: " + nodeLimit);
+      }
+    }
   }
 }
