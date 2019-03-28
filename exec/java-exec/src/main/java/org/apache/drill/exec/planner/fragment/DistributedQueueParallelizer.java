@@ -188,10 +188,14 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
     // Then use the total memory to adjust the memory requirement based on the permissible node limit.
     Map<DrillNode, List<Pair<PhysicalOperator, Long>>> memoryAdjustedDrillbits = new HashMap<>();
     onlyMemoryAboveLimitOperators.entrySet().stream().forEach(
-      entry -> {
+      CheckedConsumer.throwingConsumerWrapper(entry -> {
         Long totalBufferedOperatorsMemoryReq = entry.getValue().stream().mapToLong(Pair::getValue).sum();
         Long nonBufferedOperatorsMemoryReq = nodeResourceMap.get(entry.getKey()).getMemoryInBytes() - totalBufferedOperatorsMemoryReq;
         Long bufferedOperatorsMemoryLimit = nodeLimit - nonBufferedOperatorsMemoryReq;
+        if (bufferedOperatorsMemoryLimit < 0 || nonBufferedOperatorsMemoryReq < 0) {
+          throw new ExecutionSetupException("Operator memory requirements for buffered operators " + bufferedOperatorsMemoryLimit + " or non buffered operators " +
+            nonBufferedOperatorsMemoryReq + " is less than zero");
+        }
         List<Pair<PhysicalOperator, Long>> adjustedMemory = entry.getValue().stream().map(operatorAndMemory -> {
           // formula to adjust the memory is (optimalMemory / totalMemory(this is for all the operators)) * permissible_node_limit.
           return Pair.of(operatorAndMemory.getKey(),
@@ -200,8 +204,8 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
         }).collect(Collectors.toList());
         memoryAdjustedDrillbits.put(entry.getKey(), adjustedMemory);
         NodeResources nodeResources = nodeResourceMap.get(entry.getKey());
-        nodeResources.setMemoryInBytes(adjustedMemory.stream().mapToLong(Pair::getValue).sum());
-      }
+        nodeResources.setMemoryInBytes(nonBufferedOperatorsMemoryReq + adjustedMemory.stream().mapToLong(Pair::getValue).sum());
+      })
     );
 
     checkIfWithinLimit(nodeResourceMap, nodeLimit);
