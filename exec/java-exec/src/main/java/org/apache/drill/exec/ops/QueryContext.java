@@ -20,6 +20,7 @@ package org.apache.drill.exec.ops;
 import io.netty.buffer.DrillBuf;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.drill.common.AutoCloseables;
+import org.apache.drill.common.DrillNode;
 import org.apache.drill.common.config.DrillConfig;
 import org.apache.drill.common.config.LogicalPlanPersistence;
 import org.apache.drill.common.types.TypeProtos.MinorType;
@@ -223,7 +224,7 @@ public class QueryContext implements AutoCloseable, OptimizerRulesContext, Schem
   }
 
   /**
-   * TODO: Change it to use {@link org.apache.drill.exec.planner.fragment.common.DrillNode} instead of DrillbitEndpoint
+   * TODO: Change it to use {@link DrillNode} instead of DrillbitEndpoint
    * @return map of endpoint to UUIDs
    */
   public Map<DrillbitEndpoint, String> getOnlineEndpointUUIDs() {
