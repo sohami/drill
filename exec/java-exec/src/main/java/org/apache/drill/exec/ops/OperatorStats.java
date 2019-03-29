@@ -45,7 +45,7 @@ public class OperatorStats {
   public long[] recordsReceivedByInput;
   public long[] batchesReceivedByInput;
   private long[] schemaCountByInput;
-  private long initialMemoryAllocation;
+  private long optimalMemoryAllocation;
 
   private boolean inProcessing = false;
   private boolean inSetup = false;
@@ -62,7 +62,7 @@ public class OperatorStats {
   private int inputCount;
 
   public OperatorStats(OpProfileDef def, BufferAllocator allocator){
-    this(def.getOperatorId(), def.getOperatorType(), def.getIncomingCount(), allocator, def.initialMemAllocation);
+    this(def.getOperatorId(), def.getOperatorType(), def.getIncomingCount(), allocator, def.optimalMemoryAllocation);
   }
 
   /**
@@ -74,7 +74,7 @@ public class OperatorStats {
    */
 
   public OperatorStats(OperatorStats original, boolean isClean) {
-    this(original.operatorId, original.operatorType, original.inputCount, original.allocator, original.initialMemoryAllocation);
+    this(original.operatorId, original.operatorType, original.inputCount, original.allocator, original.optimalMemoryAllocation);
 
     if ( !isClean ) {
       inProcessing = original.inProcessing;
@@ -97,7 +97,7 @@ public class OperatorStats {
     this.recordsReceivedByInput = new long[inputCount];
     this.batchesReceivedByInput = new long[inputCount];
     this.schemaCountByInput = new long[inputCount];
-    this.initialMemoryAllocation = initialAllocation;
+    this.optimalMemoryAllocation = initialAllocation;
   }
 
   private String assertionError(String msg){
@@ -208,7 +208,7 @@ public class OperatorStats {
         .setOperatorId(operatorId) //
         .setSetupNanos(setupNanos) //
         .setProcessNanos(processingNanos)
-        .setInitialMemAllocation(initialMemoryAllocation)
+        .setOptimalMemAllocation(optimalMemoryAllocation)
         .setWaitNanos(waitNanos);
 
     if (allocator != null) {

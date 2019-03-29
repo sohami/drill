@@ -2370,8 +2370,8 @@ public final class SchemaUserBitShared
 
                 if(message.hasWaitNanos())
                     output.writeInt64(9, message.getWaitNanos(), false);
-                if(message.hasInitialMemAllocation())
-                    output.writeInt64(10, message.getInitialMemAllocation(), false);
+                if(message.hasOptimalMemAllocation())
+                    output.writeInt64(10, message.getOptimalMemAllocation(), false);
             }
             public boolean isInitialized(org.apache.drill.exec.proto.UserBitShared.OperatorProfile message)
             {
@@ -2438,7 +2438,7 @@ public final class SchemaUserBitShared
                             builder.setWaitNanos(input.readInt64());
                             break;
                         case 10:
-                            builder.setInitialMemAllocation(input.readInt64());
+                            builder.setOptimalMemAllocation(input.readInt64());
                             break;
                         default:
                             input.handleUnknownField(number, this);
@@ -2488,7 +2488,7 @@ public final class SchemaUserBitShared
                 case 7: return "peakLocalMemoryAllocated";
                 case 8: return "metric";
                 case 9: return "waitNanos";
-                case 10: return "initialMemAllocation";
+                case 10: return "optimalMemAllocation";
                 default: return null;
             }
         }
@@ -2508,7 +2508,7 @@ public final class SchemaUserBitShared
             fieldMap.put("peakLocalMemoryAllocated", 7);
             fieldMap.put("metric", 8);
             fieldMap.put("waitNanos", 9);
-            fieldMap.put("initialMemAllocation", 10);
+            fieldMap.put("optimalMemAllocation", 10);
         }
     }
 
