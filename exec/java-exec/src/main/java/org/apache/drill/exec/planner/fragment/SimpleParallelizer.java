@@ -41,7 +41,7 @@ import org.apache.drill.exec.physical.base.Receiver;
 import org.apache.drill.exec.planner.PhysicalPlanReader;
 import org.apache.drill.exec.planner.fragment.Fragment.ExchangeFragmentPair;
 import org.apache.drill.exec.planner.fragment.Materializer.IndexedFragmentNode;
-import org.apache.drill.exec.planner.fragment.common.DrillNode;
+import org.apache.drill.common.DrillNode;
 import org.apache.drill.exec.proto.BitControl.Collector;
 import org.apache.drill.exec.proto.BitControl.PlanFragment;
 import org.apache.drill.exec.proto.BitControl.QueryContextInformation;

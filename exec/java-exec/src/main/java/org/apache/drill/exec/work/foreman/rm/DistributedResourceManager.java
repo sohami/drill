@@ -26,7 +26,7 @@ import org.apache.drill.exec.exception.StoreException;
 import org.apache.drill.exec.ops.QueryContext;
 import org.apache.drill.exec.planner.fragment.DistributedQueueParallelizer;
 import org.apache.drill.exec.planner.fragment.QueryParallelizer;
-import org.apache.drill.exec.planner.fragment.common.DrillNode;
+import org.apache.drill.common.DrillNode;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
 import org.apache.drill.exec.proto.UserBitShared.QueryId;
 import org.apache.drill.exec.proto.UserBitShared.QueryResult.QueryState;
