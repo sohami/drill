@@ -74,4 +74,15 @@ public class DrillNode {
     }
     return hash;
   }
+
+
+  @Override
+  public String toString() {
+    StringBuilder sb = new StringBuilder();
+
+    return sb.append("endpoint address :")
+      .append(endpoint.getAddress())
+      .append("endpoint user port: ")
+      .append(endpoint.getUserPort()).toString();
+  }
 }

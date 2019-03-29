@@ -17,6 +17,7 @@
  */
 package org.apache.drill.exec.planner.fragment;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.util.function.CheckedConsumer;
@@ -29,7 +30,7 @@ import org.apache.drill.exec.resourcemgr.NodeResources;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.exception.QueueSelectionException;
 import org.apache.drill.exec.work.foreman.rm.QueryResourceManager;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -46,6 +47,7 @@ import java.util.stream.Collectors;
  * fragment is based on the cluster state and provided queue configuration.
  */
 public class DistributedQueueParallelizer extends SimpleParallelizer {
+  static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(DistributedQueueParallelizer.class);
   private final boolean planHasMemory;
   private final QueryContext queryContext;
   private final QueryResourceManager rm;
@@ -65,8 +67,11 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
       if (!planHasMemory) {
         final DrillNode drillEndpointNode = DrillNode.create(endpoint);
         if (operator.isBufferedOperator(queryContext)) {
-          return operators.get(drillEndpointNode).get(operator);
+          Long operatorsMemory = operators.get(drillEndpointNode).get(operator);
+          logger.debug(" Memory requirement for the operator {} in endpoint {} is {}", operator, endpoint, operatorsMemory);
+          return operatorsMemory;
         } else {
+          logger.debug(" Memory requirement for the operator {} in endpoint {} is {}", operator, endpoint, operator.getMaxAllocation());
           return operator.getMaxAllocation();
         }
       }
@@ -92,10 +97,11 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
    */
   public void adjustMemory(PlanningSet planningSet, Set<Wrapper> roots,
                            Map<DrillbitEndpoint, String> onlineEndpointUUIDs) throws ExecutionSetupException {
-
     if (planHasMemory) {
+      logger.debug(" Plan already has memory settings. Adjustment of the memory is skipped");
       return;
     }
+    logger.info(" Memory adjustment phase triggered");
 
     final Map<DrillNode, String> onlineDrillNodeUUIDs = onlineEndpointUUIDs.entrySet().stream()
       .collect(Collectors.toMap(x -> DrillNode.create(x.getKey()), x -> x.getValue()));
@@ -122,6 +128,10 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
       }));
     }
 
+    if (logger.isDebugEnabled()) {
+      logger.debug(" Total node resource requirements for the plan is {}", getJSONFromResourcesMap(totalNodeResources));
+    }
+
     final QueryQueueConfig queueConfig;
     try {
       queueConfig = this.rm.selectQueue(max(totalNodeResources.values()));
@@ -139,6 +149,10 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
                                                                                             (mem_1, mem_2) -> (mem_1 + mem_2)));
       this.operators.put(x.getKey(), memoryPerOperator);
     });
+
+    if (logger.isDebugEnabled()) {
+      logger.debug(" Total node resource requirements after adjustment {}", getJSONFromResourcesMap(totalNodeResources));
+    }
 
     this.rm.setCost(convertToUUID(totalNodeResources, onlineDrillNodeUUIDs));
   }
@@ -193,6 +207,8 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
         Long nonBufferedOperatorsMemoryReq = nodeResourceMap.get(entry.getKey()).getMemoryInBytes() - totalBufferedOperatorsMemoryReq;
         Long bufferedOperatorsMemoryLimit = nodeLimit - nonBufferedOperatorsMemoryReq;
         if (bufferedOperatorsMemoryLimit < 0 || nonBufferedOperatorsMemoryReq < 0) {
+          logger.error(" Operator memory requirements for buffered operators {} or non buffered operators {} is negative", bufferedOperatorsMemoryLimit,
+            nonBufferedOperatorsMemoryReq);
           throw new ExecutionSetupException("Operator memory requirements for buffered operators " + bufferedOperatorsMemoryLimit + " or non buffered operators " +
             nonBufferedOperatorsMemoryReq + " is less than zero");
         }
@@ -229,8 +245,23 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
   private void checkIfWithinLimit(Map<DrillNode, NodeResources> nodeResourcesMap, long nodeLimit) throws ExecutionSetupException {
     for (Map.Entry<DrillNode, NodeResources> entry : nodeResourcesMap.entrySet()) {
       if (entry.getValue().getMemoryInBytes() > nodeLimit) {
-        throw new ExecutionSetupException("Minimum memory requirement " + entry.getValue().getMemoryInBytes() + " for a node " + entry.getKey() + " is greater than limit: " + nodeLimit);
+        logger.error(" Memory requirement for the query cannot be adjusted." +
+          " Memory requirement {} (in bytes) for a node {} is greater than limit {}", entry.getValue()
+          .getMemoryInBytes(), entry.getKey(), nodeLimit);
+        throw new ExecutionSetupException("Minimum memory requirement "
+          + entry.getValue().getMemoryInBytes() + " for a node " + entry.getKey() + " is greater than limit: " + nodeLimit);
       }
     }
+  }
+
+  private String getJSONFromResourcesMap(Map<DrillNode, NodeResources> resourcesMap) {
+    String json = "";
+    try {
+      json = new ObjectMapper().writeValueAsString(resourcesMap.entrySet().stream().collect(Collectors.toMap(entry -> entry.getKey().toString(), Map.Entry::getValue)));
+    } catch (JsonProcessingException exception) {
+      logger.error(" Cannot convert the Node resources map to json ");
+    }
+
+    return json;
   }
 }
