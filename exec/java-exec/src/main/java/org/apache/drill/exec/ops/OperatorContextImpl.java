@@ -57,7 +57,7 @@ class OperatorContextImpl extends BaseOperatorContext implements AutoCloseable {
     } else {
       OpProfileDef def =
           new OpProfileDef(popConfig.getOperatorId(), popConfig.getOperatorType(),
-                           OperatorUtilities.getChildCount(popConfig), popConfig.getInitialAllocation());
+                           OperatorUtilities.getChildCount(popConfig), popConfig.getMaxAllocation());
       this.stats = context.getStats().newOperatorStats(def, allocator);
     }
   }

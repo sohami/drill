@@ -22365,13 +22365,13 @@ public final class UserBitShared {
     long getWaitNanos();
 
     /**
-     * <code>optional int64 initial_mem_allocation = 10;</code>
+     * <code>optional int64 optimal_mem_allocation = 10;</code>
      */
-    boolean hasInitialMemAllocation();
+    boolean hasOptimalMemAllocation();
     /**
-     * <code>optional int64 initial_mem_allocation = 10;</code>
+     * <code>optional int64 optimal_mem_allocation = 10;</code>
      */
-    long getInitialMemAllocation();
+    long getOptimalMemAllocation();
   }
   /**
    * Protobuf type {@code exec.shared.OperatorProfile}
@@ -22394,7 +22394,7 @@ public final class UserBitShared {
       peakLocalMemoryAllocated_ = 0L;
       metric_ = java.util.Collections.emptyList();
       waitNanos_ = 0L;
-      initialMemAllocation_ = 0L;
+      optimalMemAllocation_ = 0L;
     }
 
     @java.lang.Override
@@ -22471,7 +22471,7 @@ public final class UserBitShared {
             }
             case 80: {
               bitField0_ |= 0x00000040;
-              initialMemAllocation_ = input.readInt64();
+              optimalMemAllocation_ = input.readInt64();
               break;
             }
             default: {
@@ -22673,19 +22673,19 @@ public final class UserBitShared {
       return waitNanos_;
     }
 
-    public static final int INITIAL_MEM_ALLOCATION_FIELD_NUMBER = 10;
-    private long initialMemAllocation_;
+    public static final int OPTIMAL_MEM_ALLOCATION_FIELD_NUMBER = 10;
+    private long optimalMemAllocation_;
     /**
-     * <code>optional int64 initial_mem_allocation = 10;</code>
+     * <code>optional int64 optimal_mem_allocation = 10;</code>
      */
-    public boolean hasInitialMemAllocation() {
+    public boolean hasOptimalMemAllocation() {
       return ((bitField0_ & 0x00000040) == 0x00000040);
     }
     /**
-     * <code>optional int64 initial_mem_allocation = 10;</code>
+     * <code>optional int64 optimal_mem_allocation = 10;</code>
      */
-    public long getInitialMemAllocation() {
-      return initialMemAllocation_;
+    public long getOptimalMemAllocation() {
+      return optimalMemAllocation_;
     }
 
     private byte memoizedIsInitialized = -1;
@@ -22727,7 +22727,7 @@ public final class UserBitShared {
         output.writeInt64(9, waitNanos_);
       }
       if (((bitField0_ & 0x00000040) == 0x00000040)) {
-        output.writeInt64(10, initialMemAllocation_);
+        output.writeInt64(10, optimalMemAllocation_);
       }
       unknownFields.writeTo(output);
     }
@@ -22772,7 +22772,7 @@ public final class UserBitShared {
       }
       if (((bitField0_ & 0x00000040) == 0x00000040)) {
         size += com.google.protobuf.CodedOutputStream
-          .computeInt64Size(10, initialMemAllocation_);
+          .computeInt64Size(10, optimalMemAllocation_);
       }
       size += unknownFields.getSerializedSize();
       memoizedSize = size;
@@ -22824,10 +22824,10 @@ public final class UserBitShared {
         result = result && (getWaitNanos()
             == other.getWaitNanos());
       }
-      result = result && (hasInitialMemAllocation() == other.hasInitialMemAllocation());
-      if (hasInitialMemAllocation()) {
-        result = result && (getInitialMemAllocation()
-            == other.getInitialMemAllocation());
+      result = result && (hasOptimalMemAllocation() == other.hasOptimalMemAllocation());
+      if (hasOptimalMemAllocation()) {
+        result = result && (getOptimalMemAllocation()
+            == other.getOptimalMemAllocation());
       }
       result = result && unknownFields.equals(other.unknownFields);
       return result;
@@ -22876,10 +22876,10 @@ public final class UserBitShared {
         hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
             getWaitNanos());
       }
-      if (hasInitialMemAllocation()) {
-        hash = (37 * hash) + INITIAL_MEM_ALLOCATION_FIELD_NUMBER;
+      if (hasOptimalMemAllocation()) {
+        hash = (37 * hash) + OPTIMAL_MEM_ALLOCATION_FIELD_NUMBER;
         hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-            getInitialMemAllocation());
+            getOptimalMemAllocation());
       }
       hash = (29 * hash) + unknownFields.hashCode();
       memoizedHashCode = hash;
@@ -23040,7 +23040,7 @@ public final class UserBitShared {
         }
         waitNanos_ = 0L;
         bitField0_ = (bitField0_ & ~0x00000080);
-        initialMemAllocation_ = 0L;
+        optimalMemAllocation_ = 0L;
         bitField0_ = (bitField0_ & ~0x00000100);
         return this;
       }
@@ -23115,7 +23115,7 @@ public final class UserBitShared {
         if (((from_bitField0_ & 0x00000100) == 0x00000100)) {
           to_bitField0_ |= 0x00000040;
         }
-        result.initialMemAllocation_ = initialMemAllocation_;
+        result.optimalMemAllocation_ = optimalMemAllocation_;
         result.bitField0_ = to_bitField0_;
         onBuilt();
         return result;
@@ -23235,8 +23235,8 @@ public final class UserBitShared {
         if (other.hasWaitNanos()) {
           setWaitNanos(other.getWaitNanos());
         }
-        if (other.hasInitialMemAllocation()) {
-          setInitialMemAllocation(other.getInitialMemAllocation());
+        if (other.hasOptimalMemAllocation()) {
+          setOptimalMemAllocation(other.getOptimalMemAllocation());
         }
         this.mergeUnknownFields(other.unknownFields);
         onChanged();
@@ -23940,34 +23940,34 @@ public final class UserBitShared {
         return this;
       }
 
-      private long initialMemAllocation_ ;
+      private long optimalMemAllocation_ ;
       /**
-       * <code>optional int64 initial_mem_allocation = 10;</code>
+       * <code>optional int64 optimal_mem_allocation = 10;</code>
        */
-      public boolean hasInitialMemAllocation() {
+      public boolean hasOptimalMemAllocation() {
         return ((bitField0_ & 0x00000100) == 0x00000100);
       }
       /**
-       * <code>optional int64 initial_mem_allocation = 10;</code>
+       * <code>optional int64 optimal_mem_allocation = 10;</code>
        */
-      public long getInitialMemAllocation() {
-        return initialMemAllocation_;
+      public long getOptimalMemAllocation() {
+        return optimalMemAllocation_;
       }
       /**
-       * <code>optional int64 initial_mem_allocation = 10;</code>
+       * <code>optional int64 optimal_mem_allocation = 10;</code>
        */
-      public Builder setInitialMemAllocation(long value) {
+      public Builder setOptimalMemAllocation(long value) {
         bitField0_ |= 0x00000100;
-        initialMemAllocation_ = value;
+        optimalMemAllocation_ = value;
         onChanged();
         return this;
       }
       /**
-       * <code>optional int64 initial_mem_allocation = 10;</code>
+       * <code>optional int64 optimal_mem_allocation = 10;</code>
        */
-      public Builder clearInitialMemAllocation() {
+      public Builder clearOptimalMemAllocation() {
         bitField0_ = (bitField0_ & ~0x00000100);
-        initialMemAllocation_ = 0L;
+        optimalMemAllocation_ = 0L;
         onChanged();
         return this;
       }
@@ -27952,7 +27952,7 @@ public final class UserBitShared {
       "\n\013setup_nanos\030\005 \001(\003\022\025\n\rprocess_nanos\030\006 \001" +
       "(\003\022#\n\033peak_local_memory_allocated\030\007 \001(\003\022" +
       "(\n\006metric\030\010 \003(\0132\030.exec.shared.MetricValu" +
-      "e\022\022\n\nwait_nanos\030\t \001(\003\022\036\n\026initial_mem_all" +
+      "e\022\022\n\nwait_nanos\030\t \001(\003\022\036\n\026optimal_mem_all" +
       "ocation\030\n \001(\003\"B\n\rStreamProfile\022\017\n\007record" +
       "s\030\001 \001(\003\022\017\n\007batches\030\002 \001(\003\022\017\n\007schemas\030\003 \001(" +
       "\003\"J\n\013MetricValue\022\021\n\tmetric_id\030\001 \001(\005\022\022\n\nl" +
@@ -28122,7 +28122,7 @@ public final class UserBitShared {
     internal_static_exec_shared_OperatorProfile_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_exec_shared_OperatorProfile_descriptor,
-        new java.lang.String[] { "InputProfile", "OperatorId", "OperatorType", "SetupNanos", "ProcessNanos", "PeakLocalMemoryAllocated", "Metric", "WaitNanos", "InitialMemAllocation", });
+        new java.lang.String[] { "InputProfile", "OperatorId", "OperatorType", "SetupNanos", "ProcessNanos", "PeakLocalMemoryAllocated", "Metric", "WaitNanos", "OptimalMemAllocation", });
     internal_static_exec_shared_StreamProfile_descriptor =
       getDescriptor().getMessageTypes().get(17);
     internal_static_exec_shared_StreamProfile_fieldAccessorTable = new
