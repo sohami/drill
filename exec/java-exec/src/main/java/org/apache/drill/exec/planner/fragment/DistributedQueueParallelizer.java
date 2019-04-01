@@ -71,8 +71,9 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
           logger.debug(" Memory requirement for the operator {} in endpoint {} is {}", operator, endpoint, operatorsMemory);
           return operatorsMemory;
         } else {
-          logger.debug(" Memory requirement for the operator {} in endpoint {} is {}", operator, endpoint, operator.getMaxAllocation());
-          return operator.getMaxAllocation();
+          Long nonBufferedMemory = (long)operator.getCost().getMemoryCost();
+          logger.debug(" Memory requirement for the operator {} in endpoint {} is {}", operator, endpoint, nonBufferedMemory);
+          return nonBufferedMemory;
         }
       }
       else {
@@ -140,8 +141,10 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
     }
 
     Map<DrillNode,
-        List<Pair<PhysicalOperator, Long>>> memoryAdjustedOperators = ensureOperatorMemoryWithinLimits(operators, totalNodeResources,
-                                                                                                       convertMBToBytes(queueConfig.getMaxQueryMemoryInMBPerNode()));
+        List<Pair<PhysicalOperator, Long>>> memoryAdjustedOperators =
+                      ensureOperatorMemoryWithinLimits(operators, totalNodeResources,
+                                          convertMBToBytes(Math.min(queueConfig.getMaxQueryMemoryInMBPerNode(),
+                                                                    queueConfig.getQueueTotalMemoryInMB(onlineEndpointUUIDs.size()))));
     memoryAdjustedOperators.entrySet().stream().forEach((x) -> {
       Map<PhysicalOperator, Long> memoryPerOperator = x.getValue().stream()
                                                                   .collect(Collectors.toMap(operatorLongPair -> operatorLongPair.getLeft(),
