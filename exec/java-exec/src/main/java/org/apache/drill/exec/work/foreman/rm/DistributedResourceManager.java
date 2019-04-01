@@ -30,6 +30,7 @@ import org.apache.drill.common.DrillNode;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
 import org.apache.drill.exec.proto.UserBitShared.QueryId;
 import org.apache.drill.exec.proto.UserBitShared.QueryResult.QueryState;
+import org.apache.drill.exec.proto.helper.QueryIdHelper;
 import org.apache.drill.exec.resourcemgr.NodeResources;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.RMCommonDefaults;
@@ -204,7 +205,7 @@ public class DistributedResourceManager implements ResourceManager {
       final PriorityQueue<DistributedQueryRM> waitingQueue = waitingQueuesForAdmittedQuery.get(queueName);
       waitingQueue.add(distributedQueryRM);
       logger.info("Count of times queryRM for the query {} is added in the wait queue is {}",
-        ((DistributedQueryRM) queryRM).queryContext.getQueryId().toString(),
+        QueryIdHelper.getQueryId(((DistributedQueryRM) queryRM).queryContext.getQueryId()),
         distributedQueryRM.incrementAndGetWaitRetryCount());
     }
   }
@@ -219,8 +220,7 @@ public class DistributedResourceManager implements ResourceManager {
 
   private String freeResources(Map<String, NodeResources> queryResourceAssignment, QueryQueueConfig selectedQueue,
                              String leaderId, String queryId, String foremanUUID) throws Exception {
-    logger.info("Free resources for query {}. [Details: ResourceMap: {}]", queryId,
-      queryResourceAssignment.toString());
+    logger.info("Free resources for query {}. [Details: ResourceMap: {}]", queryId, queryResourceAssignment.toString());
     return rmBlobStoreManager.freeResources(queryResourceAssignment, selectedQueue, leaderId, queryId, foremanUUID);
   }
 
@@ -318,7 +318,7 @@ public class DistributedResourceManager implements ResourceManager {
       admittedLeaderUUID = foremanUUID;
       currentQueueLeader = admittedLeaderUUID;
       logger.info("Selected queue {} for query {} with leader {}", selectedQueue.getQueueName(),
-        queryContext.getQueryId(), admittedLeaderUUID);
+        QueryIdHelper.getQueryId(queryContext.getQueryId()), admittedLeaderUUID);
       return selectedQueue;
     }
 
@@ -334,7 +334,7 @@ public class DistributedResourceManager implements ResourceManager {
         Preconditions.checkState(selectedQueue != null, "A queue is not selected for the query " +
           "before trying to reserve resources for this query");
         drillRM.reserveResources(assignedEndpointsCost, selectedQueue, admittedLeaderUUID,
-          queryId.toString(), foremanUUID);
+          QueryIdHelper.getQueryId(queryId), foremanUUID);
         updateState(QueryRMState.RESERVED_RESOURCES);
         return true;
       } catch (ResourceUnavailableException ex) {
@@ -348,7 +348,7 @@ public class DistributedResourceManager implements ResourceManager {
           // timeout has expired so don't put in waiting queue
           throw new QueueWaitTimeoutExpired(String.format("Failed to reserve resources for the query and the wait " +
             "timeout is also expired. [Details: QueryId: %s, Queue: %s, ElapsedTime: %d",
-            queryId, selectedQueue.getQueueName(), timeElapsedWaiting), ex);
+            QueryIdHelper.getQueryId(queryId), selectedQueue.getQueueName(), timeElapsedWaiting), ex);
         }
         drillRM.addToWaitingQueue(this);
         return false;
@@ -431,12 +431,12 @@ public class DistributedResourceManager implements ResourceManager {
           // try to release the resources and update state on Zookeeper
           try {
             currentQueueLeader = drillRM.freeResources(assignedEndpointsCost, selectedQueue, admittedLeaderUUID,
-              queryContext.getQueryId().toString(), foremanUUID);
+              QueryIdHelper.getQueryId(queryContext.getQueryId()), foremanUUID);
             // successfully released resources so update the state
             updateState(QueryRMState.RELEASED_RESOURCES);
           } catch (Exception ex) {
             logger.info("Failed while freeing resources for this query {} in queryRM exit for {} time",
-              queryContext.getQueryId().toString(), incrementAndGetCleanupCount());
+              QueryIdHelper.getQueryId(queryContext.getQueryId()), incrementAndGetCleanupCount());
             drillRM.queryRMCleanupQueue.add(this);
             return;
           }
