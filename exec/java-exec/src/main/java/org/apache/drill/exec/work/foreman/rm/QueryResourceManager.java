@@ -53,6 +53,7 @@ public interface QueryResourceManager {
     RESERVED_RESOURCES,
     RELEASED_RESOURCES,
     DEQUEUED,
+    FAILED,
     COMPLETED;
 
     @Override
