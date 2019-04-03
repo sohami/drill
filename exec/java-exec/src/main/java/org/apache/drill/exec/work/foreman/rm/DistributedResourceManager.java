@@ -450,6 +450,7 @@ public class DistributedResourceManager implements ResourceManager {
           Preconditions.checkState(foreman.getState() == QueryState.FAILED, "QueryRM exit is " +
             "called in an unexpected query state. [Details: QueryRM state: %s, Query State: %s]",
             currentState, foreman.getState());
+          updateState(QueryRMState.FAILED);
           break;
         default:
           throw new IllegalStateException("QueryRM exit is called in unexpected state. Looks like something is wrong " +
