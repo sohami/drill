@@ -20,8 +20,6 @@ package org.apache.drill.exec.work.foreman.rm;
 import org.apache.drill.common.config.DrillConfig;
 import org.apache.drill.exec.ops.QueryContext;
 import org.apache.drill.exec.physical.PhysicalPlan;
-import org.apache.drill.exec.planner.fragment.QueryParallelizer;
-import org.apache.drill.exec.planner.fragment.DefaultQueryParallelizer;
 import org.apache.drill.exec.util.MemoryAllocationUtilities;
 import org.apache.drill.exec.work.QueryWorkUnit;
 import org.apache.drill.exec.work.foreman.Foreman;
@@ -48,15 +46,11 @@ public class DefaultResourceManager implements ResourceManager {
       if (plan == null || plan.getProperties().hasResourcePlan) {
         return;
       }
-      MemoryAllocationUtilities.setupBufferedMemoryAllocations(plan, queryContext);
+      MemoryAllocationUtilities.setupBufferedOpsMemoryAllocations(plan, queryContext);
     }
 
     @Override
     public void visitPhysicalPlan(QueryWorkUnit work) {
-    }
-
-    public QueryContext getQueryContext() {
-      return queryContext;
     }
   }
 
@@ -73,11 +67,6 @@ public class DefaultResourceManager implements ResourceManager {
     @Override
     public void setCost(double cost) {
       // Nothing to do by default.
-    }
-
-    @Override
-    public QueryParallelizer getParallelizer(boolean memoryPlanning){
-      return new DefaultQueryParallelizer(memoryPlanning, this.getQueryContext());
     }
 
     @Override

@@ -38,19 +38,13 @@
     },
     "columns" : [ "`field_1`", "`field_3`.`inner_1`", "`field_3`.`inner_2`", "`field_4`.`inner_1`", "`non_existent_at_root`", "`non_existent`.`nested`.`field`"],
     "selectionRoot" : "/store/json/schema_change_int_to_string.json",
-    "cost" : {
-      "memoryCost" : 0,
-      "outputRowCount" : 0
-    }
+    "cost" : 0.0
   }, {
     "pop" : "screen",
     "@id" : 0,
     "child" : 1,
     "initialAllocation" : 1000000,
     "maxAllocation" : 10000000000,
-    "cost" : {
-      "memoryCost" : 0,
-      "outputRowCount" : 1.0
-    }
+    "cost" : 1.0
   } ]
 }

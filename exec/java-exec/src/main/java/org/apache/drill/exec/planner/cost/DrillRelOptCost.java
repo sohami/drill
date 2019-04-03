@@ -24,6 +24,4 @@ public interface DrillRelOptCost extends RelOptCost {
 
   double getNetwork();
 
-  double getMemory();
-
 }

@@ -17,7 +17,7 @@
  */
 package org.apache.drill.exec.util;
 
-import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.drill.common.config.DrillConfig;
@@ -34,22 +34,6 @@ import org.apache.drill.shaded.guava.com.google.common.annotations.VisibleForTes
 public class MemoryAllocationUtilities {
 
   private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(MemoryAllocationUtilities.class);
-
-
-  public static void setupBufferedMemoryAllocations(PhysicalPlan plan, final QueryContext queryContext) {
-    setupBufferedOpsMemoryAllocations(plan.getProperties().hasResourcePlan,
-                                      getBufferedOperators(plan.getSortedOperators(), queryContext), queryContext);
-  }
-
-  public static List<PhysicalOperator> getBufferedOperators(List<PhysicalOperator> operators, QueryContext queryContext) {
-    final List<PhysicalOperator> bufferedOpList = new ArrayList<>();
-    for (final PhysicalOperator op : operators) {
-      if (op.isBufferedOperator(queryContext)) {
-        bufferedOpList.add(op);
-      }
-    }
-    return bufferedOpList;
-  }
 
   /**
    * Helper method to setup Memory Allocations
@@ -70,18 +54,28 @@ public class MemoryAllocationUtilities {
    * <p>
    * since this method can be used in multiple places adding it in this class
    * rather than keeping it in Foreman
-   * @param planHasMemory defines the memory planning needs to be done or not.
-   *                             generally skipped when the plan contains memory allocation.
-   * @param bufferedOperators list of buffered operators in the plan.
-   * @param queryContext context of the query.
+   * @param plan
+   * @param queryContext
    */
-  public static void setupBufferedOpsMemoryAllocations(boolean planHasMemory,
-    List<PhysicalOperator> bufferedOperators, final QueryContext queryContext) {
+  public static void setupBufferedOpsMemoryAllocations(final PhysicalPlan plan, final QueryContext queryContext) {
 
     // Test plans may already have a pre-defined memory plan.
     // Otherwise, determine memory allocation.
 
-    if (planHasMemory || bufferedOperators.isEmpty()) {
+    if (plan.getProperties().hasResourcePlan) {
+      return;
+    }
+    // look for external sorts
+    final List<PhysicalOperator> bufferedOpList = new LinkedList<>();
+    for (final PhysicalOperator op : plan.getSortedOperators()) {
+      if (op.isBufferedOperator(queryContext)) {
+        bufferedOpList.add(op);
+      }
+    }
+
+    // if there are any sorts, compute the maximum allocation, and set it on them
+    plan.getProperties().hasResourcePlan = true;
+    if (bufferedOpList.isEmpty()) {
       return;
     }
 
@@ -97,9 +91,9 @@ public class MemoryAllocationUtilities {
 
     // Now divide up the memory by slices and operators.
 
-    final long opMinMem = computeOperatorMemory(optionManager, maxAllocPerNode, bufferedOperators.size());
+    final long opMinMem = computeOperatorMemory(optionManager, maxAllocPerNode, bufferedOpList.size());
 
-    for(final PhysicalOperator op : bufferedOperators) {
+    for(final PhysicalOperator op : bufferedOpList) {
       final long alloc = Math.max(opMinMem, op.getInitialAllocation());
       op.setMaxAllocation(alloc);
     }

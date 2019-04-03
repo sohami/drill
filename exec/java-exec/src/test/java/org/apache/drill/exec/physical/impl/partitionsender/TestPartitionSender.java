@@ -46,8 +46,6 @@ import org.apache.drill.exec.physical.impl.TopN.TopNBatch;
 import org.apache.drill.exec.physical.impl.partitionsender.PartitionSenderRootExec.Metric;
 import org.apache.drill.exec.physical.impl.partitionsender.PartitionerDecorator.GeneralExecuteIface;
 import org.apache.drill.exec.planner.PhysicalPlanReader;
-import org.apache.drill.exec.planner.cost.PrelCostEstimates;
-import org.apache.drill.exec.planner.fragment.DefaultQueryParallelizer;
 import org.apache.drill.exec.planner.fragment.Fragment;
 import org.apache.drill.exec.planner.fragment.PlanningSet;
 import org.apache.drill.exec.planner.fragment.SimpleParallelizer;
@@ -88,8 +86,7 @@ import org.apache.drill.shaded.guava.com.google.common.collect.Lists;
 @Category(OperatorTest.class)
 public class TestPartitionSender extends PlanTestBase {
 
-  private static final SimpleParallelizer PARALLELIZER = new DefaultQueryParallelizer(
-      true,
+  private static final SimpleParallelizer PARALLELIZER = new SimpleParallelizer(
       1 /*parallelizationThreshold (slice_count)*/,
       6 /*maxWidthPerNode*/,
       1000 /*maxGlobalWidth*/,
@@ -181,14 +178,14 @@ public class TestPartitionSender extends PlanTestBase {
     options.clear();
     options.add(OptionValue.create(AccessibleScopes.SESSION, "planner.slice_target", 1, OptionScope.SESSION));
     options.add(OptionValue.create(OptionValue.AccessibleScopes.SESSION, "planner.partitioner_sender_max_threads", 10, OptionScope.SESSION));
-    hashToRandomExchange.setCost(new PrelCostEstimates(1000, 1000));
+    hashToRandomExchange.setCost(1000);
     testThreadsHelper(hashToRandomExchange, drillbitContext, options,
         incoming, registry, planReader, planningSet, rootFragment, 10);
 
     options.clear();
     options.add(OptionValue.create(AccessibleScopes.SESSION, "planner.slice_target", 1000, OptionScope.SESSION));
     options.add(OptionValue.create(AccessibleScopes.SESSION, "planner.partitioner_sender_threads_factor",2, OptionScope.SESSION));
-    hashToRandomExchange.setCost(new PrelCostEstimates(14000, 14000));
+    hashToRandomExchange.setCost(14000);
     testThreadsHelper(hashToRandomExchange, drillbitContext, options,
         incoming, registry, planReader, planningSet, rootFragment, 2);
   }
@@ -210,8 +207,9 @@ public class TestPartitionSender extends PlanTestBase {
       RecordBatch incoming, FunctionImplementationRegistry registry, PhysicalPlanReader planReader, PlanningSet planningSet, Fragment rootFragment,
       int expectedThreadsCount) throws Exception {
 
-    final QueryContextInformation queryContextInfo = Utilities.createQueryContextInfo("dummySchemaName", "938ea2d9-7cb9-4baf-9414-a5a0b7777e8e");
-    final QueryWorkUnit qwu = PARALLELIZER.generateWorkUnit(options, drillbitContext.getEndpoint(),
+    final QueryContextInformation queryContextInfo = Utilities.createQueryContextInfo("dummySchemaName",
+        "938ea2d9-7cb9-4baf-9414-a5a0b7777e8e");
+    final QueryWorkUnit qwu = PARALLELIZER.getFragments(options, drillbitContext.getEndpoint(),
         QueryId.getDefaultInstance(),
         drillbitContext.getBits(), rootFragment, USER_SESSION, queryContextInfo);
     qwu.applyPlan(planReader);

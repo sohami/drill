@@ -112,7 +112,7 @@ public class PlanSplitter {
     final PhysicalOperator rootOperator = plan.getSortedOperators(false).iterator().next();
 
     final Fragment rootFragment = rootOperator.accept(MakeFragmentsVisitor.INSTANCE, null);
-    final SimpleParallelizer parallelizer = new SplittingParallelizer(plan.getProperties().hasResourcePlan, queryContext);
+    final SimpleParallelizer parallelizer = new SplittingParallelizer(queryContext);
 
     List<PlanFragment> fragments = Lists.newArrayList();
 
@@ -133,7 +133,7 @@ public class PlanSplitter {
         }
       }
     } else {
-      final QueryWorkUnit queryWorkUnit = parallelizer.generateWorkUnit(queryContext.getOptions().getOptionList(), queryContext.getCurrentEndpoint(),
+      final QueryWorkUnit queryWorkUnit = parallelizer.getFragments(queryContext.getOptions().getOptionList(), queryContext.getCurrentEndpoint(),
           queryId, queryContext.getActiveEndpoints(), rootFragment,
           queryContext.getSession(), queryContext.getQueryContextInfo());
       planner.visitPhysicalPlan(queryWorkUnit);

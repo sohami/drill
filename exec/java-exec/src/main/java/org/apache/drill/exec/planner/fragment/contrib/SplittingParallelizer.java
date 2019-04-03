@@ -20,7 +20,6 @@ package org.apache.drill.exec.planner.fragment.contrib;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
 import org.apache.drill.common.exceptions.ExecutionSetupException;
 import org.apache.drill.common.util.DrillStringUtils;
@@ -29,9 +28,9 @@ import org.apache.drill.exec.physical.base.Exchange;
 import org.apache.drill.exec.physical.base.FragmentRoot;
 import org.apache.drill.exec.physical.base.PhysicalOperator;
 import org.apache.drill.exec.planner.PhysicalPlanReader;
-import org.apache.drill.exec.planner.fragment.DefaultQueryParallelizer;
 import org.apache.drill.exec.planner.fragment.Fragment;
 import org.apache.drill.exec.planner.fragment.PlanningSet;
+import org.apache.drill.exec.planner.fragment.SimpleParallelizer;
 import org.apache.drill.exec.planner.fragment.Wrapper;
 import org.apache.drill.exec.planner.fragment.Materializer.IndexedFragmentNode;
 import org.apache.drill.exec.proto.BitControl.PlanFragment;
@@ -57,12 +56,12 @@ import org.apache.drill.shaded.guava.com.google.common.collect.Lists;
  * allows not to pollute parent class with non-authentic functionality
  *
  */
-public class SplittingParallelizer extends DefaultQueryParallelizer {
+public class SplittingParallelizer extends SimpleParallelizer {
 
   static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(SplittingParallelizer.class);
 
-  public SplittingParallelizer(boolean doMemoryPlanning, QueryContext context) {
-    super(doMemoryPlanning, context);
+  public SplittingParallelizer(QueryContext context) {
+    super(context);
   }
 
   /**
@@ -82,13 +81,7 @@ public class SplittingParallelizer extends DefaultQueryParallelizer {
       Collection<DrillbitEndpoint> activeEndpoints, PhysicalPlanReader reader, Fragment rootFragment,
       UserSession session, QueryContextInformation queryContextInfo) throws ExecutionSetupException {
 
-    final PlanningSet planningSet = this.prepareFragmentTree(rootFragment);
-
-    Set<Wrapper> rootFragments = getRootFragments(planningSet);
-
-    collectStatsAndParallelizeFragments(planningSet, rootFragments, activeEndpoints);
-
-    adjustMemory(planningSet, rootFragments, activeEndpoints);
+    final PlanningSet planningSet = getFragmentsHelper(activeEndpoints, rootFragment);
 
     return generateWorkUnits(
         options, foremanNode, queryId, reader, rootFragment, planningSet, session, queryContextInfo);
@@ -120,7 +113,7 @@ public class SplittingParallelizer extends DefaultQueryParallelizer {
 
     List<QueryWorkUnit> workUnits = Lists.newArrayList();
     int plansCount = 0;
-    DrillbitEndpoint[] leafFragEndpoints = null;
+    DrillbitEndpoint[] endPoints = null;
     long initialAllocation = 0;
 
     final Iterator<Wrapper> iter = planningSet.iterator();
@@ -137,14 +130,12 @@ public class SplittingParallelizer extends DefaultQueryParallelizer {
         // allocation
         plansCount = wrapper.getWidth();
         initialAllocation = (wrapper.getInitialAllocation() != 0 ) ? wrapper.getInitialAllocation()/plansCount : 0;
-        leafFragEndpoints = new DrillbitEndpoint[plansCount];
+        endPoints = new DrillbitEndpoint[plansCount];
         for (int mfId = 0; mfId < plansCount; mfId++) {
-          leafFragEndpoints[mfId] = wrapper.getAssignedEndpoint(mfId);
+          endPoints[mfId] = wrapper.getAssignedEndpoint(mfId);
         }
       }
     }
-
-    DrillbitEndpoint[] endPoints = leafFragEndpoints;
     if ( plansCount == 0 ) {
       // no exchange, return list of single QueryWorkUnit
       workUnits.add(generateWorkUnit(options, foremanNode, queryId, rootNode, planningSet, session, queryContextInfo));
@@ -183,8 +174,7 @@ public class SplittingParallelizer extends DefaultQueryParallelizer {
         MinorFragmentDefn rootFragment = null;
         FragmentRoot rootOperator = null;
 
-        IndexedFragmentNode iNode = new IndexedFragmentNode(minorFragmentId, wrapper,
-          (fragmentWrapper, minorFragment) -> endPoints[minorFragment],getMemory());
+        IndexedFragmentNode iNode = new IndexedFragmentNode(minorFragmentId, wrapper);
         wrapper.resetAllocation();
         // two visitors here
         // 1. To remove exchange
