@@ -260,7 +260,10 @@ public class DistributedQueueParallelizer extends SimpleParallelizer {
   private String getJSONFromResourcesMap(Map<DrillNode, NodeResources> resourcesMap) {
     String json = "";
     try {
-      json = new ObjectMapper().writeValueAsString(resourcesMap.entrySet().stream().collect(Collectors.toMap(entry -> entry.getKey().toString(), Map.Entry::getValue)));
+      json = new ObjectMapper().writeValueAsString(resourcesMap.entrySet()
+                                                               .stream()
+                                                                .collect(Collectors.toMap(entry -> entry.getKey()
+                                                                                                        .toString(), Map.Entry::getValue)));
     } catch (JsonProcessingException exception) {
       logger.error(" Cannot convert the Node resources map to json ");
     }
