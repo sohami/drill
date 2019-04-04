@@ -56,7 +56,7 @@ public class FilterEvaluatorUtils {
 
   public static RowsMatch evalFilter(LogicalExpression expr, MetadataBase.ParquetTableMetadataBase footer,
                                      int rowGroupIndex, OptionManager options, FragmentContext fragmentContext) {
-    List<SchemaPath> schemaPathsInExpr = new ArrayList<>(expr.accept(new FieldReferenceFinder(), null));
+    List<SchemaPath> schemaPathsInExpr = new ArrayList<>(expr.<Set<SchemaPath>, Void, RuntimeException>accept(new FieldReferenceFinder(), null));
 
     RowGroupMetadata rowGroupMetadata = new ArrayList<>(ParquetTableMetadataUtils.getRowGroupsMetadata(footer).values()).get(rowGroupIndex);
     Map<SchemaPath, ColumnStatistics> columnsStatistics = rowGroupMetadata.getColumnsStatistics();

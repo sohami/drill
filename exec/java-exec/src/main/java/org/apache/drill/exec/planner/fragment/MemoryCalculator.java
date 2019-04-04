@@ -88,7 +88,7 @@ public class MemoryCalculator extends AbstractOpWrapperVisitor<Void, RuntimeExce
           getMinorFragCountPerDrillbit(fragment),
           // get the memory requirements for the sender operator.
           (x) -> exchange.getSenderMemory(receivingFragment.getWidth(), x.getValue()));
-    return visitOp(exchange, fragment);
+    return visit(exchange, fragment);
   }
 
   @Override
@@ -116,6 +116,13 @@ public class MemoryCalculator extends AbstractOpWrapperVisitor<Void, RuntimeExce
             // If the exchange is a MuxExchange then the sending fragments are from that particular drillbit otherwise
             // sending fragments are from across the cluster.
             exchange instanceof AbstractMuxExchange ? sendingFragsPerDrillBit.get(x.getKey()) : totalSendingFrags));
+    return null;
+  }
+
+  private Void visit(PhysicalOperator op, Wrapper fragment) {
+    for (PhysicalOperator child : op) {
+      child.accept(this, fragment);
+    }
     return null;
   }
 
@@ -155,10 +162,7 @@ public class MemoryCalculator extends AbstractOpWrapperVisitor<Void, RuntimeExce
             getMinorFragCountPerDrillbit(fragment),
             (x) -> memoryCost * x.getValue());
     }
-    for (PhysicalOperator child : op) {
-      child.accept(this, fragment);
-    }
-    return null;
+    return visit(op, fragment);
   }
 }
 
