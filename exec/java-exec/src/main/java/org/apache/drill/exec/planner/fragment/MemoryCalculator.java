@@ -146,7 +146,7 @@ public class MemoryCalculator extends AbstractOpWrapperVisitor<Void, RuntimeExce
                               drillbitEndpointMinorFragMap.entrySet().stream()
                                                           .collect(Collectors.toMap((x) -> x.getKey(),
                                                                               (x) -> Pair.of(op,
-                                                                                memoryCostPerMinorFrag * x.getValue())));
+                                                                                memoryCostPerMinorFrag)));
       bufferedOperatorsPerDrillbit.entrySet().forEach((x) -> {
         bufferedOperators.putIfAbsent(x.getKey(), new ArrayList<>());
         bufferedOperators.get(x.getKey()).add(x.getValue());
