@@ -18,7 +18,6 @@
 package org.apache.drill.exec.work.foreman.rm;
 
 import org.apache.drill.exec.planner.fragment.QueryParallelizer;
-import org.apache.drill.exec.proto.UserBitShared.QueryId;
 import org.apache.drill.exec.resourcemgr.NodeResources;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.exception.QueueSelectionException;
@@ -130,11 +129,10 @@ public interface QueryResourceManager {
   /**
    * Called to reserve resources required by query in a state store. This will help to make decisions for future queries
    * based on the information in state store about the available resources in the cluster.
-   * @param queryId queryId of query for which resources are reserved
    * @return true successfully reserved resources, false failure while reserving resources
    * @throws Exception in case of non transient failure
    */
-  boolean reserveResources(QueryId queryId) throws Exception;
+  boolean reserveResources() throws Exception;
 
   /**
    * Select a queue out of all configured ones for this query. The selected queue config will be later used to make

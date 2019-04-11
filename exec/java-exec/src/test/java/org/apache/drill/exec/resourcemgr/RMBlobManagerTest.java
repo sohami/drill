@@ -158,6 +158,7 @@ public class RMBlobManagerTest extends DrillTest {
     final ClusterFixtureBuilder fixtureBuilder = ClusterFixture.builder(dirTestWatcher)
       .configProperty(ExecConstants.DRILL_PORT_HUNT, true)
       .configProperty(ExecConstants.RM_ENABLED, false)
+      .setOptionDefault(ExecConstants.ENABLE_QUEUE.getOptionName(), false)
       .withLocalZk();
 
     // start the cluster

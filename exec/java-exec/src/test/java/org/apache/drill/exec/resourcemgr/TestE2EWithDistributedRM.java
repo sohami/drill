@@ -33,6 +33,7 @@ public class TestE2EWithDistributedRM extends ClusterTest {
     final ClusterFixtureBuilder fixtureBuilder = ClusterFixture.builder(dirTestWatcher)
       .configProperty(ExecConstants.RM_ENABLED, true)
       .configProperty(ExecConstants.DRILL_PORT_HUNT, true)
+      .setOptionDefault(ExecConstants.ENABLE_QUEUE.getOptionName(), false)
       .withLocalZk();
     startCluster(fixtureBuilder);
   }

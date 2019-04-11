@@ -20,7 +20,6 @@ package org.apache.drill.exec.work.foreman.rm;
 import org.apache.drill.exec.ops.QueryContext;
 import org.apache.drill.exec.planner.fragment.QueryParallelizer;
 import org.apache.drill.exec.planner.fragment.ZKQueueParallelizer;
-import org.apache.drill.exec.proto.UserBitShared;
 import org.apache.drill.exec.resourcemgr.NodeResources;
 import org.apache.drill.exec.resourcemgr.config.QueryQueueConfig;
 import org.apache.drill.exec.resourcemgr.config.exception.QueueSelectionException;
@@ -144,7 +143,7 @@ public class ThrottledResourceManager extends AbstractResourceManager {
     }
 
     @Override
-    public boolean reserveResources(UserBitShared.QueryId queryId) throws Exception {
+    public boolean reserveResources() throws Exception {
       // Resource reservation is not done in this case only estimation is assigned to operator during planning time
       return true;
     }

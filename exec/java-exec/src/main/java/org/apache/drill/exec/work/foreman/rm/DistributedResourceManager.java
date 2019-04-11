@@ -18,6 +18,7 @@
 package org.apache.drill.exec.work.foreman.rm;
 
 import avro.shaded.com.google.common.annotations.VisibleForTesting;
+import org.apache.drill.common.DrillNode;
 import org.apache.drill.common.config.DrillConfig;
 import org.apache.drill.common.exceptions.DrillRuntimeException;
 import org.apache.drill.exec.ExecConstants;
@@ -26,9 +27,7 @@ import org.apache.drill.exec.exception.StoreException;
 import org.apache.drill.exec.ops.QueryContext;
 import org.apache.drill.exec.planner.fragment.DistributedQueueParallelizer;
 import org.apache.drill.exec.planner.fragment.QueryParallelizer;
-import org.apache.drill.common.DrillNode;
 import org.apache.drill.exec.proto.CoordinationProtos.DrillbitEndpoint;
-import org.apache.drill.exec.proto.UserBitShared.QueryId;
 import org.apache.drill.exec.proto.UserBitShared.QueryResult.QueryState;
 import org.apache.drill.exec.proto.helper.QueryIdHelper;
 import org.apache.drill.exec.resourcemgr.NodeResources;
@@ -50,6 +49,7 @@ import org.apache.drill.exec.work.foreman.rm.QueryQueue.QueueTimeoutException;
 import org.apache.drill.shaded.guava.com.google.common.base.Preconditions;
 import org.apache.drill.shaded.guava.com.google.common.base.Stopwatch;
 
+import java.lang.reflect.Constructor;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Map;
@@ -74,11 +74,11 @@ public class DistributedResourceManager implements ResourceManager {
 
   public final long memoryPerNode;
 
-  public final int cpusPerNode;
+  private final int cpusPerNode;
 
-  private final WaitQueueThread waitQueueThread;
+  private final Thread waitQueueThread;
 
-  private volatile AtomicBoolean exitWaitThread = new AtomicBoolean(false);
+  private volatile AtomicBoolean exitDaemonThreads = new AtomicBoolean(false);
 
   private final RMBlobStoreManager rmBlobStoreManager;
 
@@ -93,14 +93,12 @@ public class DistributedResourceManager implements ResourceManager {
 
   private final Queue<DistributedQueryRM> queryRMCleanupQueue = new ConcurrentLinkedQueue<>();
 
-  private final CleanupThread queryRMCleanupThread;
-
-  private volatile AtomicBoolean exitCleanupThread = new AtomicBoolean(false);
+  private final Thread queryRMCleanupThread;
 
   public DistributedResourceManager(DrillbitContext context) throws DrillRuntimeException {
-    memoryPerNode = DrillConfig.getMaxDirectMemory();
-    cpusPerNode = Runtime.getRuntime().availableProcessors();
     try {
+      memoryPerNode = DrillConfig.getMaxDirectMemory();
+      cpusPerNode = Runtime.getRuntime().availableProcessors();
       this.context = context;
       final DrillConfig rmConfig = DrillConfig.createForRM();
       rmPoolTree = new ResourcePoolTreeImpl(rmConfig, DrillConfig.getMaxDirectMemory(),
@@ -116,17 +114,13 @@ public class DistributedResourceManager implements ResourceManager {
       context.getClusterCoordinator().addDrillbitStatusListener(
         new RegisterLocalBitResources(context, rmPoolTree, rmBlobStoreManager));
 
-      // start the wait thread
+      // calculate wait interval
       final int waitThreadInterval = calculateWaitInterval(rmConfig, rmPoolTree.getAllLeafQueues().values());
       logger.debug("Wait thread refresh interval is set as {}", waitThreadInterval);
-      this.waitQueueThread = new WaitQueueThread(waitThreadInterval);
-      this.waitQueueThread.setDaemon(true);
-      this.waitQueueThread.start();
-
+      // start the wait thread
+      this.waitQueueThread = startDaemonThreads(WaitQueueThread.class, waitThreadInterval);
       // start the cleanup thread
-      queryRMCleanupThread = new CleanupThread(waitThreadInterval);
-      this.queryRMCleanupThread.setDaemon(true);
-      this.queryRMCleanupThread.start();
+      queryRMCleanupThread = startDaemonThreads(CleanupThread.class, waitThreadInterval);
     } catch (RMConfigException ex) {
       throw new DrillRuntimeException(String.format("Failed while parsing Drill RM Configs. Drillbit won't be started" +
         " unless config is fixed or RM is disabled by setting %s to false", ExecConstants.RM_ENABLED), ex);
@@ -158,10 +152,8 @@ public class DistributedResourceManager implements ResourceManager {
   @Override
   public void close() {
     // interrupt the wait thread
-    exitWaitThread.set(true);
+    exitDaemonThreads.set(true);
     waitQueueThread.interrupt();
-
-    exitCleanupThread.set(true);
     queryRMCleanupThread.interrupt();
 
     // Clear off the QueryRM for admitted queries which are in waiting state. This should be fine even in case of
@@ -198,6 +190,19 @@ public class DistributedResourceManager implements ResourceManager {
     return (halfMinWaitInterval == 0) ? minWaitInterval : halfMinWaitInterval;
   }
 
+  private Thread startDaemonThreads(Class<? extends Thread> threadClass, Integer interval) {
+    try {
+      final Constructor threadConstructor = threadClass.getConstructor(DistributedResourceManager.class, Integer.class);
+      final Thread threadToCreate = (Thread) threadConstructor.newInstance(this, interval);
+      threadToCreate.setDaemon(true);
+      threadToCreate.start();
+      return threadToCreate;
+    } catch (Exception ex) {
+      throw new DrillRuntimeException(String.format("Failed to create %s daemon thread for Distributed RM",
+        threadClass.getName()), ex);
+    }
+  }
+
   private void addToWaitingQueue(final QueryResourceManager queryRM) {
     final DistributedQueryRM distributedQueryRM = (DistributedQueryRM)queryRM;
     final String queueName = distributedQueryRM.queueName();
@@ -205,8 +210,7 @@ public class DistributedResourceManager implements ResourceManager {
       final PriorityQueue<DistributedQueryRM> waitingQueue = waitingQueuesForAdmittedQuery.get(queueName);
       waitingQueue.add(distributedQueryRM);
       logger.info("Count of times queryRM for the query {} is added in the wait queue is {}",
-        QueryIdHelper.getQueryId(((DistributedQueryRM) queryRM).queryContext.getQueryId()),
-        distributedQueryRM.incrementAndGetWaitRetryCount());
+        ((DistributedQueryRM) queryRM).queryIdString, distributedQueryRM.incrementAndGetWaitRetryCount());
     }
   }
 
@@ -234,6 +238,8 @@ public class DistributedResourceManager implements ResourceManager {
 
     private final String foremanUUID;
 
+    private final String queryIdString;
+
     private QueryRMState currentState;
 
     private Stopwatch waitStartTime;
@@ -251,9 +257,11 @@ public class DistributedResourceManager implements ResourceManager {
     private int retryCountAfterWaitQueue;
 
     DistributedQueryRM(ResourceManager resourceManager, Foreman queryForeman) {
+      Preconditions.checkArgument(resourceManager instanceof DistributedResourceManager);
       this.drillRM = (DistributedResourceManager) resourceManager;
       this.queryContext = queryForeman.getQueryContext();
       this.foreman = queryForeman;
+      this.queryIdString = QueryIdHelper.getQueryId(queryContext.getQueryId());
       currentState = QueryRMState.STARTED;
       // TODO: Below get is broken since currentEndpoint and OnlineEndpoints have different entry for foreman node
       foremanUUID = findUUIDUsingIpAndPort(queryContext.getOnlineEndpointUUIDs(), queryContext.getCurrentEndpoint());
@@ -297,6 +305,8 @@ public class DistributedResourceManager implements ResourceManager {
       // TODO: for now it will just return ADMITTED since leader election is not available
       // Once leader election support is there we will throw exception in case of error
       // otherwise just return
+      Preconditions.checkState(selectedQueue != null, "Query is being admitted before selecting " +
+        "a queue for it");
       updateState(QueryRMState.ENQUEUED);
       return QueryAdmitResponse.ADMITTED;
     }
@@ -317,8 +327,8 @@ public class DistributedResourceManager implements ResourceManager {
       // TODO: Set the LeaderUUID based on the selected queue
       admittedLeaderUUID = foremanUUID;
       currentQueueLeader = admittedLeaderUUID;
-      logger.info("Selected queue {} for query {} with leader {}", selectedQueue.getQueueName(),
-        QueryIdHelper.getQueryId(queryContext.getQueryId()), admittedLeaderUUID);
+      logger.info("Selected queue {} for query {} with leader {}", selectedQueue.getQueueName(), queryIdString,
+        admittedLeaderUUID);
       return selectedQueue;
     }
 
@@ -327,14 +337,13 @@ public class DistributedResourceManager implements ResourceManager {
       return admittedLeaderUUID;
     }
 
-    public boolean reserveResources(QueryId queryId) throws Exception {
+    public boolean reserveResources() throws Exception {
       try {
-        Preconditions.checkState(assignedEndpointsCost != null,
-          "Cost of the query is not set before calling reserve resources");
         Preconditions.checkState(selectedQueue != null, "A queue is not selected for the query " +
           "before trying to reserve resources for this query");
-        drillRM.reserveResources(assignedEndpointsCost, selectedQueue, admittedLeaderUUID,
-          QueryIdHelper.getQueryId(queryId), foremanUUID);
+        Preconditions.checkState(assignedEndpointsCost != null,
+          "Cost of the query is not set before calling reserve resources");
+        drillRM.reserveResources(assignedEndpointsCost, selectedQueue, admittedLeaderUUID, queryIdString, foremanUUID);
         updateState(QueryRMState.RESERVED_RESOURCES);
         return true;
       } catch (ResourceUnavailableException ex) {
@@ -348,7 +357,7 @@ public class DistributedResourceManager implements ResourceManager {
           // timeout has expired so don't put in waiting queue
           throw new QueueWaitTimeoutExpired(String.format("Failed to reserve resources for the query and the wait " +
             "timeout is also expired. [Details: QueryId: %s, Queue: %s, ElapsedTime: %d",
-            QueryIdHelper.getQueryId(queryId), selectedQueue.getQueueName(), timeElapsedWaiting), ex);
+            queryIdString, selectedQueue.getQueueName(), timeElapsedWaiting), ex);
         }
         drillRM.addToWaitingQueue(this);
         return false;
@@ -363,13 +372,13 @@ public class DistributedResourceManager implements ResourceManager {
       boolean isSuccessful = false;
       switch (currentState) {
         case STARTED:
-          isSuccessful = (newState == QueryRMState.ENQUEUED);
+          isSuccessful = (newState == QueryRMState.ENQUEUED || newState == QueryRMState.FAILED);
           break;
         case ENQUEUED:
-          isSuccessful = (newState == QueryRMState.ADMITTED);
+          isSuccessful = (newState == QueryRMState.ADMITTED || newState == QueryRMState.FAILED);
           break;
         case ADMITTED:
-          isSuccessful = (newState == QueryRMState.RESERVED_RESOURCES);
+          isSuccessful = (newState == QueryRMState.RESERVED_RESOURCES || newState == QueryRMState.DEQUEUED);
           break;
         case RESERVED_RESOURCES:
           isSuccessful = (newState == QueryRMState.RELEASED_RESOURCES);
@@ -391,6 +400,11 @@ public class DistributedResourceManager implements ResourceManager {
       }
 
       throw new IllegalStateException(logString);
+    }
+
+    @VisibleForTesting
+    public QueryRMState getCurrentState() {
+      return currentState;
     }
 
     /**
@@ -431,12 +445,12 @@ public class DistributedResourceManager implements ResourceManager {
           // try to release the resources and update state on Zookeeper
           try {
             currentQueueLeader = drillRM.freeResources(assignedEndpointsCost, selectedQueue, admittedLeaderUUID,
-              QueryIdHelper.getQueryId(queryContext.getQueryId()), foremanUUID);
+              queryIdString, foremanUUID);
             // successfully released resources so update the state
             updateState(QueryRMState.RELEASED_RESOURCES);
           } catch (Exception ex) {
-            logger.info("Failed while freeing resources for this query {} in queryRM exit for {} time",
-              QueryIdHelper.getQueryId(queryContext.getQueryId()), incrementAndGetCleanupCount());
+            logger.info("Failed while freeing resources for this query {} in queryRM exit for {} time", queryIdString,
+              incrementAndGetCleanupCount());
             drillRM.queryRMCleanupQueue.add(this);
             return;
           }
@@ -447,11 +461,12 @@ public class DistributedResourceManager implements ResourceManager {
           updateState(QueryRMState.DEQUEUED);
           break;
         case STARTED:
+        case ENQUEUED:
           Preconditions.checkState(foreman.getState() == QueryState.FAILED, "QueryRM exit is " +
             "called in an unexpected query state. [Details: QueryRM state: %s, Query State: %s]",
             currentState, foreman.getState());
           updateState(QueryRMState.FAILED);
-          break;
+          return;
         default:
           throw new IllegalStateException("QueryRM exit is called in unexpected state. Looks like something is wrong " +
             "with internal state!!");
@@ -478,7 +493,7 @@ public class DistributedResourceManager implements ResourceManager {
      * @param
      * @return
      */
-    public static String findUUIDUsingIpAndPort(Map<DrillbitEndpoint, String> endpointUUIDs, DrillbitEndpoint foreman) {
+    private String findUUIDUsingIpAndPort(Map<DrillbitEndpoint, String> endpointUUIDs, DrillbitEndpoint foreman) {
       Map<DrillNode, String> drillbitNodeUUIDs = endpointUUIDs.entrySet().stream().collect(Collectors.toMap(entry ->
         DrillNode.create(entry.getKey()), Map.Entry::getValue));
       final DrillNode foremanNode = DrillNode.create(foreman);
@@ -494,15 +509,15 @@ public class DistributedResourceManager implements ResourceManager {
   private class WaitQueueThread extends Thread {
     private final int refreshInterval;
 
-    WaitQueueThread(int waitInterval) {
-      setName("DistributedResourceManager.WaitThread");
+    public WaitQueueThread(Integer waitInterval) {
       refreshInterval = waitInterval;
+      setName("DistributedResourceManager.WaitThread");
     }
 
     // TODO: Incomplete
     @Override
     public void run() {
-      while (!exitWaitThread.get()) {
+      while (!exitDaemonThreads.get()) {
         try {
           synchronized (waitingQueuesForAdmittedQuery) {
            for (PriorityQueue<DistributedQueryRM> queue : waitingQueuesForAdmittedQuery.values()) {
@@ -518,7 +533,6 @@ public class DistributedResourceManager implements ResourceManager {
           Thread.sleep(refreshInterval);
         } catch (InterruptedException ex) {
           logger.error("Thread {} is interrupted", getName());
-          continue;
         }
       }
     }
@@ -532,14 +546,14 @@ public class DistributedResourceManager implements ResourceManager {
   private class CleanupThread extends Thread {
     private final int refreshTime;
 
-    CleanupThread(int refreshInterval) {
+    public CleanupThread(Integer refreshInterval) {
       this.refreshTime = refreshInterval;
       setName("DistributedResourceManager.CleanupThread");
     }
 
     @Override
     public void run() {
-      while(!exitCleanupThread.get()) {
+      while(!exitDaemonThreads.get()) {
         try {
           int queryRMCount = queryRMCleanupQueue.size();
 
@@ -553,7 +567,6 @@ public class DistributedResourceManager implements ResourceManager {
           Thread.sleep(refreshTime);
         } catch (InterruptedException ex) {
           logger.error("Thread {} is interrupted", getName());
-          continue;
         }
       }
     }

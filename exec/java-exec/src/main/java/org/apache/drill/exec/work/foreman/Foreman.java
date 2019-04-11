@@ -508,10 +508,10 @@ public class Foreman implements Runnable {
   private void reserveAndRunFragments() {
     // Now try to reserve the resources required by this query
     try {
-      if (!queryRM.reserveResources(queryId)) {
+      if (!queryRM.reserveResources()) {
         // query is added to RM waiting queue
         logger.info("Query {} is added to the RM waiting queue of rm pool {} since it was not able to reserve " +
-            "required resources", queryId, queryRM.queueName());
+            "required resources", queryIdString, queryRM.queueName());
         return;
       }
       runFragments();
@@ -588,7 +588,7 @@ public class Foreman implements Runnable {
     }
 
     queryText = serverState.getSqlQuery();
-    logger.info("Prepared statement query for QueryId {} : {}", queryId, queryText);
+    logger.info("Prepared statement query for QueryId {} : {}", queryIdString, queryText);
     runSQL(queryText);
 
   }
@@ -620,8 +620,7 @@ public class Foreman implements Runnable {
     if (! logger.isTraceEnabled()) {
       return;
     }
-    logger.trace(String.format("PlanFragments for query %s \n%s",
-        queryId, queryWorkUnit.stringifyFragments()));
+    logger.trace(String.format("PlanFragments for query %s \n%s", queryIdString, queryWorkUnit.stringifyFragments()));
   }
 
   private void runSQL(final String sql) throws ExecutionSetupException {
